@@ -62,12 +62,12 @@ def inpaint_text(img, pipeline):
         cv2.line(mask, (x_mid0, y_mid0), (x_mid1, y_mid1), 255, thickness)
         inpainted_img = cv2.inpaint(img, mask, inpaintRadius=thickness, flags=cv2.INPAINT_NS)
 
-    return img
+    return inpainted_img
 
 pipeline = keras_ocr.pipeline.Pipeline()
 
 # Remove text from images
-img_text_removed = [inpaint_text(img, pipeline) for img in rgb_batch]
+img_text_removed = [inpaint_text(img, pipeline) for img in rgb_batch[-5:]]
 
 # Display 5 last images with text removed
 fig, axs = plt.subplots(1, 5, figsize=(20, 20))
