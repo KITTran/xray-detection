@@ -23,21 +23,6 @@ def load_images_from_folders(folder_list):
                 images.append(np.array(img))
     return images
 
-# Load images from sample dataset
-folder_list = [os.path.join(project_dir, 'dataset/sample', folder) for folder in os.listdir(project_dir + '/dataset/sample')]
-images = load_images_from_folders(folder_list)
-
-# Display 5 last images
-fig, axs = plt.subplots(1, 5, figsize=(20, 20))
-for i in range(5):
-    axs[i].imshow(images[len(images) - i - 1], cmap='gray')
-    axs[i].axis('off')
-plt.show()
-
-# Add one more dimension to images
-images = [np.expand_dims(img, axis=-1) for img in images]
-rgb_batch = [np.repeat(img, 3, -1) for img in images]
-
 # Remove text from images
 def mid_point(x1, y1, x2, y2):
     x_mid = int((x1 + x2) / 2)
@@ -65,18 +50,6 @@ def inpaint_text(img, pipeline):
 
     return inpainted_img
 
-pipeline = keras_ocr.pipeline.Pipeline()
-
-# Remove text from images
-img_text_removed = [inpaint_text(img, pipeline) for img in rgb_batch[-5:]]
-
-# Display 5 last images with text removed
-fig, axs = plt.subplots(1, 5, figsize=(20, 20))
-for i in range(5):
-    axs[i].imshow(img_text_removed[len(img_text_removed) - i - 1], cmap='gray')
-    axs[i].axis('off')
-plt.show()
-
 # Preprocess images to hightlight defects in images
 # Thresholding Otsu -> Labeling -> area calcuation -> defect segmentation
 
@@ -89,11 +62,54 @@ def preprocess_images(images):
         processed_images.append(binary_img)
     return processed_images
 
-processed_images = preprocess_images(img_text_removed)
+def visual_img(img_list, save_dir = None):
+    """
+    Visualize images in a list
+    """
+    fig, axs = plt.subplots(1, len(img_list), figsize=(20, 20))
+    for i, img in enumerate(img_list):
+        axs[i].imshow(img, cmap='gray')
+        axs[i].axis('off')
+    plt.show()
+    if save_dir is not None:
+        plt.savefig(save_dir)
+    plt.close()
 
-# Display 5 last processed images
-fig, axs = plt.subplots(1, 5, figsize=(20, 20))
-for i in range(5):
-    axs[i].imshow(processed_images[len(processed_images) - i - 1], cmap='gray')
-    axs[i].axis('off')
-plt.show()
+def hist_vis(img):
+    """
+    Visualize histogram of an image
+    """
+    hist = cv2.calcHist([img], [0], None, [256], [0, 256])
+    plt.figure(figsize=(10, 5))
+    plt.plot(hist)
+    # label the x-axis
+    plt.xlabel('Pixel Intensity')
+    # label the y-axis
+    plt.ylabel('Number of Pixels')
+    # display the title
+    plt.title('Grayscale Histogram')
+    plt.show()
+
+if __name__ == '__main__':
+    # Load images from sample dataset
+    folder_list = [os.path.join(project_dir, 'dataset/sample', folder) for folder in os.listdir(project_dir + '/dataset/sample')]
+    images = load_images_from_folders(folder_list)
+
+    # Display 5 last images
+    visual_img(images[-5:])
+
+    # # Add one more dimension to images
+    # images = [np.expand_dims(img, axis=-1) for img in images]
+    # rgb_batch = [np.repeat(img, 3, -1) for img in images]
+
+    # pipeline = keras_ocr.pipeline.Pipeline()
+
+    # # Remove text from images
+    # img_text_removed = [inpaint_text(img, pipeline) for img in rgb_batch[-5:]]
+    # visual_img(img_text_removed)
+
+    # processed_images = preprocess_images(img_text_removed)
+    # visual_img(processed_images)
+
+    # Display histogram of an image
+    hist_vis(images[0])
