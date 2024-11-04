@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 
 from PIL import Image
 from skimage.filters import threshold_otsu
+from skimage.color import rgb2gray
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
 project_dir = os.path.dirname(current_dir)
@@ -82,6 +83,7 @@ plt.show()
 def preprocess_images(images):
     processed_images = []
     for img in images:
+        img = rgb2gray(img)
         thresh = threshold_otsu(img)
         binary_img = img < thresh
         processed_images.append(binary_img)
