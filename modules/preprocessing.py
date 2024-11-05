@@ -80,15 +80,28 @@ def hist_vis(img):
     Visualize histogram of an image
     """
     hist = cv2.calcHist([img], [0], None, [256], [0, 256])
+    cdf = hist.cumsum()
+    cdf_normalized = cdf * hist.max() / cdf.max()
+
     plt.figure(figsize=(10, 5))
+    plt.plot(cdf_normalized, color = 'black')
     plt.plot(hist)
-    # label the x-axis
+    plt.legend(['cumulative', 'histogram'], loc = 'upper left')
     plt.xlabel('Pixel Intensity')
-    # label the y-axis
     plt.ylabel('Number of Pixels')
-    # display the title
     plt.title('Grayscale Histogram')
     plt.show()
+
+def hist_equalization(img, method = None):
+    """
+    Apply histogram equalization to an image
+    """
+    if method == 'clahe':
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+        return clahe.apply(img)
+
+    img = cv2.equalizeHist(img)
+    return img
 
 if __name__ == '__main__':
     # Load images from sample dataset
@@ -111,5 +124,7 @@ if __name__ == '__main__':
     # processed_images = preprocess_images(img_text_removed)
     # visual_img(processed_images)
 
-    # Display histogram of an image
-    hist_vis(images[0])
+    # Euqalize histogram of images
+    hist_img = hist_equalization(images[0], method='clahe')
+    hist_vis(hist_img)
+    visual_img([hist_img])
