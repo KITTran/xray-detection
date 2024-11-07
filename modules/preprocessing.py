@@ -9,9 +9,6 @@ from PIL import Image
 from skimage.filters import threshold_otsu
 from skimage.color import rgb2gray
 
-current_dir = os.path.dirname(os.path.realpath(__file__))
-project_dir = os.path.dirname(current_dir)
-
 # Import dataset
 def load_images_from_folders(folder_list):
     images = []
@@ -22,6 +19,19 @@ def load_images_from_folders(folder_list):
                 img = Image.open(img_path)
                 images.append(np.array(img))
     return images
+
+def visual_img(img_list, save_dir = None):
+    """
+    Visualize images in a list
+    """
+    fig, axs = plt.subplots(1, len(img_list), figsize=(20, 20))
+    for i, img in enumerate(img_list):
+        axs[i].imshow(img, cmap='gray')
+        axs[i].axis('off')
+    plt.show()
+    if save_dir is not None:
+        plt.savefig(save_dir)
+    plt.close()
 
 # Remove text from images
 def mid_point(x1, y1, x2, y2):
@@ -56,26 +66,14 @@ def inpaint_text(img, pipeline):
 def preprocess_images(images):
     processed_images = []
     for img in images:
-        img = rgb2gray(img)
+        if img.shape() == 3:
+            img = rgb2gray(img)
         thresh = threshold_otsu(img)
         binary_img = img < thresh
         processed_images.append(binary_img)
     return processed_images
 
-def visual_img(img_list, save_dir = None):
-    """
-    Visualize images in a list
-    """
-    fig, axs = plt.subplots(1, len(img_list), figsize=(20, 20))
-    for i, img in enumerate(img_list):
-        axs[i].imshow(img, cmap='gray')
-        axs[i].axis('off')
-    plt.show()
-    if save_dir is not None:
-        plt.savefig(save_dir)
-    plt.close()
-
-def hist_vis(img):
+def visual_his(img):
     """
     Visualize histogram of an image
     """
@@ -103,21 +101,22 @@ def hist_equalization(img, method = None):
     img = cv2.equalizeHist(img)
     return img
 
+
 if __name__ == '__main__':
+    current_dir = os.path.dirname(os.path.realpath(__file__))
+    project_dir = os.path.dirname(current_dir)
+
     # Load images from sample dataset
-    folder_list = [os.path.join(project_dir, 'dataset/sample', folder) for folder in os.listdir(project_dir + '/dataset/sample')]
+    folder_list = [os.path.join(project_dir, 'dataset/sample', folder) for folder in sorted(os.listdir(project_dir + '/dataset/sample'))]
     images = load_images_from_folders(folder_list)
+    images = [np.expand_dims(img, axis=-1) for img in images]
 
     # Display 5 last images
     visual_img(images[-5:])
 
-    # # Add one more dimension to images
-    # images = [np.expand_dims(img, axis=-1) for img in images]
-    # rgb_batch = [np.repeat(img, 3, -1) for img in images]
-
-    # pipeline = keras_ocr.pipeline.Pipeline()
-
     # # Remove text from images
+    # rgb_batch = [np.repeat(np.expand_dims(img, axis=-1), 3, -1) for img in images]
+    # pipeline = keras_ocr.pipeline.Pipeline()
     # img_text_removed = [inpaint_text(img, pipeline) for img in rgb_batch[-5:]]
     # visual_img(img_text_removed)
 
@@ -125,6 +124,8 @@ if __name__ == '__main__':
     # visual_img(processed_images)
 
     # Euqalize histogram of images
-    hist_img = hist_equalization(images[0], method='clahe')
-    hist_vis(hist_img)
-    visual_img([hist_img])
+    hist_img = [hist_equalization(img, method='clahe') for img in images[-5:]]
+    visual_img(hist_img)
+
+    for img in hist_img:
+        visual_his(img)
