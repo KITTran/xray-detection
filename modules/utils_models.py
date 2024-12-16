@@ -1,3 +1,4 @@
+from networkx import attr_sparse_matrix
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -52,24 +53,25 @@ class CBAM(nn.Module):
         return output
 
 class ResHDCCBAM(nn.Module):
-    def __init__(self, in_channels, r=16):
+    def __init__(self, in_channels, output_channels, r=16):
         super(ResHDCCBAM, self).__init__()
 
-        self.branch1 = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, dilation=1)
+        self.branch1 = nn.Conv2d(in_channels, output_channels, kernel_size=3, padding=1, dilation=1)
 
         self.branch2 = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, dilation=1),
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=2, dilation=2)
+            nn.Conv2d(in_channels, output_channels, kernel_size=3, padding=2, dilation=2)
         )
 
         self.branch3 = nn.Sequential(
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1, dilation=1),
             nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=2, dilation=2),
-            nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=4, dilation=4)
+            nn.Conv2d(in_channels, output_channels, kernel_size=3, padding=4, dilation=4)
         )
 
         self.cbam = CBAM(in_channels, r)
-
+        self.conv1 = nn.Conv2d(in_channels, output_channels, kernel_size=1)
+        self.conv2 = nn.Conv2d(in_channels, output_channels, kernel_size=1)
 
     def forward(self, x):
         residual = x
@@ -77,7 +79,7 @@ class ResHDCCBAM(nn.Module):
         out2 = self.branch2(x)
         out3 = self.branch3(x)
         cbam = self.cbam(x)
-        out = out1 + out2 + out3 + cbam + residual
+        out = out1 + out2 + out3 + self.conv1(cbam) + self.conv2(residual)
         return out
 
 class DownSampling(nn.Module):
@@ -88,7 +90,8 @@ class DownSampling(nn.Module):
 
     def forward(self, x):
         x = self.pool(x)
-        return self.conv(x)
+        x = self.conv(x)
+        return x
 
 class DCIM(nn.Module):
     def __init__(self, output_list, num_parallel, r=16):
@@ -111,10 +114,11 @@ class DCIM(nn.Module):
 
                 print(f"Level {l}, Branch {k}, Input channels: {input_channels}")
 
-                self.H[idx] = ResHDCCBAM(input_channels, r)
+                self.H[idx] = ResHDCCBAM(input_channels, output_list[l], r)
 
                 if l < self.levels - 1:
-                    self.D[idx] = DownSampling(input_channels, output_list[l+1])
+                    # self.D[idx] = DownSampling(input_channels, output_list[l+1])
+                    self.D[idx] = DownSampling(output_list[l], output_list[l+1])
                 # if k < self.num_parallel - 1:
                 #     self.U[f"{l+1}_{k}"] = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
@@ -374,7 +378,7 @@ class WResHDC_FF(nn.Module):
             out = self.convbnrelu1[self.levels - 1 - l](out)
             out = self.convbnrelu2[self.levels - 1 - l](out)
 
-        return out
+        return self.atp(out)
 
 # Example usage
 if __name__ == '__main__':
@@ -383,12 +387,12 @@ if __name__ == '__main__':
     num_parallel = 2
     upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
 
-    # model = WResHDC_FF(output_list, num_parallel, upsampling_cfg)
-    model = DCIM(output_list, num_parallel)
+    model = WResHDC_FF(output_list, num_parallel, upsampling_cfg)
+    # model = DCIM(output_list, num_parallel)
     output = model(input_tensor)
 
-    # print("Output shape:", output.shape)
-    print("Output shape:", [o.shape for o in output])
+    print("Output shape:", output.shape)
+    # print("Output shape:", [o.shape for o in output])
 
     # Print model summary
     torchinfo.summary(model, input_size=(1, 64, 320, 320), device='cpu')
