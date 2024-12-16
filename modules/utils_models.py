@@ -1,4 +1,3 @@
-from sympy import use
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -423,5 +422,6 @@ if __name__ == '__main__':
     print("Output shape:", output.shape)
     # print("Output shape:", [o.shape for o in output])
 
-    # Print model summary
-    torchinfo.summary(model, input_size=(1, 64, 320, 320), device='cpu')
+    # print model summary
+    model_info = torchinfo.summary(model, input_size=(1, 64, 320, 320))
+    print(model_info)
