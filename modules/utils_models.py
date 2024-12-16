@@ -1,4 +1,4 @@
-from networkx import attr_sparse_matrix
+from sympy import use
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -93,6 +93,35 @@ class DownSampling(nn.Module):
         x = self.conv(x)
         return x
 
+def SimAM(X, lamb):
+    # spatial size
+    n = X.shape[2] * X.shape[3]- 1
+    # square of (t- u)
+    d = (X- X.mean(dim=[2,3])).pow(2)
+    # d.sum() / n is channel variance
+    v = d.sum(dim=[2,3]) / n
+    # E_inv groups all importance of X
+    E_inv = d / (4 * (v + lamb)) + 0.5
+    # return attended features
+    return X * nn.Sigmoid(E_inv)
+
+class ResSimAM(nn.Module):
+    def __init__(self, in_channels, lamb):
+        super(ResSimAM, self).__init__()
+
+        self.lamb = lamb
+        self.conv1 = ConvBNReLU(in_channels, in_channels, 3, 1, 1, 1)
+        self.conv2 = ConvBNReLU(in_channels, in_channels, 3, 1, 1, 1, use_relu=False)
+
+        self.simam = SimAM
+
+    def forward(self, X):
+        residual = X
+        X = self.conv1(X)
+        X = self.conv2(X)
+        X = self.simam(X, self.lamb)
+        return nn.ReLU(X + residual)
+
 class DCIM(nn.Module):
     def __init__(self, output_list, num_parallel, r=16):
         super(DCIM, self).__init__()
@@ -112,7 +141,7 @@ class DCIM(nn.Module):
 
                 input_channels = output_list[l] if input_channels == 0 else input_channels
 
-                print(f"Level {l}, Branch {k}, Input channels: {input_channels}")
+                # print(f"Level {l}, Branch {k}, Input channels: {input_channels}")
 
                 self.H[idx] = ResHDCCBAM(input_channels, output_list[l], r)
 
