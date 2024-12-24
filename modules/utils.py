@@ -1,9 +1,7 @@
 import os
-import sys
 import glob
 import math
 import pathlib
-import skimage.io
 import numpy as np
 
 import torch
@@ -224,9 +222,22 @@ class GDXrayDataset(Dataset):
 
         # Load image
         if self.labels:
+            if not os.path.exists(target_ID):
+                print("Skipping image: {0} Reason: No mask".format(input_ID))
+                return
+
             x, y = read_image(str(input_ID)), read_image(str(target_ID))
         else:
             x = read_image(str(input_ID))
+
+        _mask = np.zeros((*self.config.IMG_SIZE, 2), dtype=np.float32)
+
+        #BACKGROUND_CLASS
+        _mask[:, :, 0] = np.where(y[:, :, 0] == 0, 1, 0)
+        #WELDING_DEFECT
+        _mask[:, :, 1] = np.where(y[:, :, 0] == 1, 1, 0)
+
+        y = torch.from_numpy(_mask).permute(2, 0, 1)
 
         if self.transform is not None and self.labels:
             x, y = self.transform(x, y)
@@ -240,17 +251,3 @@ class GDXrayDataset(Dataset):
         else:
             x = x.to(self.inputs_dtype)
             return x
-
-    def add_class(self, source, class_id, class_name):
-        assert "." not in source, "Source name cannot contain a dot"
-        # Does the class exist already?
-        for info in self.class_info:
-            if info['source'] == source and info["id"] == class_id:
-                # source.class_id combination already available, skip
-                return
-        # Add the class
-        self.class_info.append({
-            "source": source,
-            "id": class_id,
-            "name": class_name,
-        })
