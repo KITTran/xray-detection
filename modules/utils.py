@@ -187,7 +187,7 @@ class GDXrayDataset(Dataset):
         self.class_info = [{"source": "", "id": 0, "name": "BG"}]
         self.source_class_ids = {}
 
-        self.add_class(source="gdxray", class_id=WELDING_DEFECT, class_name="Welding Defect")
+        # self.add_class(source="gdxray", class_id=WELDING_DEFECT, class_name="Welding Defect")
 
         search_image_files = os.path.join(
             self.config.DATA_DIR,
@@ -251,3 +251,19 @@ class GDXrayDataset(Dataset):
         else:
             x = x.to(self.inputs_dtype)
             return x
+
+if __name__ == "__main__":
+    # Test the load dataset
+    class testConfig(Config):
+        DATA_DIR = 'dataset/gdxray/welding'
+        IMAGE_DIR = 'W0001'
+        LABEL_DIR = 'W0002'
+        IMG_SIZE = (256, 256)
+
+    config = testConfig()
+    dataset = GDXrayDataset(config, "train", labels=True)
+
+    for i in range(len(dataset)):
+        x, y = dataset[i]
+        print(x.shape, y.shape)
+        break
