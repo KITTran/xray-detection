@@ -1,13 +1,15 @@
-import os
-import glob
+from cProfile import label
+import json
 import math
+import os
 import pathlib
+
 import numpy as np
-
 import torch
-
 from torch.utils.data import Dataset
 from torchvision.io import read_image
+
+CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 BACKGROUND_CLASS = 0
 WELDING_DEFECT = 1
@@ -178,92 +180,107 @@ class GDXrayDataset(Dataset):
     An example image_id is: "Weldings/W0001/W0001_0004.png"
     """
 
-    def __init__(self, config, subset, transform=None, labels=None):
+    def __init__(self, config : dict, labels : bool, transform):
+        super().__init__()
+        """
+        Args:
+            config (dict): Contain nessesary information for the dataset
+            config = {
+                'name': str, # Name of the dataset
+                'data_dir': str, # Path to the data directory
+                'subset': str, # 'train' or 'val'
+                'metadata': str, # Path to the metadata file
+                'img_size': tuple, # Size of the image }
+            labels (bool): Whether to load labels
+            transform (callable, optional): Transform to be applied to the images.
+        """
+
         self.config = config
-        self.subset = subset
         self.labels = labels
         self.transform = transform
 
+        # Initialize the dataset infos
+        self.image_info = []
+        self.image_ids = []
+        self.image_indices = {}
+        self.label_ids = []
         self.class_info = [{"source": "", "id": 0, "name": "BG"}]
-        self.source_class_ids = {}
 
-        # self.add_class(source="gdxray", class_id=WELDING_DEFECT, class_name="Welding Defect")
+        # Add classes
+        self.add_class(config['name'], 1, "Defect")
 
-        search_image_files = os.path.join(
-            self.config.DATA_DIR,
-            self.config.IMAGE_DIR,
-            '*')
+        # Load the dataset
+        metadata = "../metadata/{}_{}.txt".format(config['name'], config['subset'])
 
-        if labels:
-            search_annot_files = os.path.join(
-                self.config.DATA_DIR,
-                self.config.LABEL_DIR,
-                '*')
+        # Load image ids from key 'image' in dictionary in metadata file
+        self.image_ids.extend(self.load_metadata(metadata, 'image'))
+        if self.labels:
+            self.label_ids.extend(self.load_metadata(metadata, 'label'))
 
-        self.inputs = [pathlib.PurePath(file) for file in sorted(glob.glob(search_image_files))]
-        if labels:
-            self.targets = [pathlib.PurePath(file) for file in sorted(glob.glob(search_annot_files))]
+        for i, image_id in enumerate(self.image_ids):
+            img_path = os.path.join(config['data_dir'], image_id)
+            if self.labels:
+                label_path = os.path.join(config['data_dir'], self.labels_ids[i])
 
-        print("Images: {} , Labels: {}".format(len(self.inputs), len(self.targets)))
+                if not os.path.exists(label_path):
+                    print("Skipping ",image_id," Reason: No mask")
+                    continue
 
-        self.transform = transform
-        self.inputs_dtype = torch.float32
-        if labels:
-            self.targets_dtype = torch.int64
 
 
     def __len__(self):
-        return len(self.inputs)
+        return len(self.image_ids)
 
-    def __getitem__(self, idx):
-        input_ID = self.inputs[idx]
-        if self.labels:
-            target_ID = self.targets[idx]
-
-        # Load image
-        if self.labels:
-            if not os.path.exists(target_ID):
-                print("Skipping image: {0} Reason: No mask".format(input_ID))
+    def add_class(self, source, class_id, class_name):
+        assert "." not in source, "Source name cannot contain a dot"
+        # Does the class exist already?
+        for info in self.class_info:
+            if info['source'] == source and info["id"] == class_id:
+                # source.class_id combination already available, skip
                 return
+        # Add the class
+        self.class_info.append({
+            "source": source,
+            "id": class_id,
+            "name": class_name,
+        })
 
-            x, y = read_image(str(input_ID)), read_image(str(target_ID))
-        else:
-            x = read_image(str(input_ID))
+    def add_image(self, source, image_id, path, **kwargs):
+        image_info = {
+            "id": image_id,
+            "source": source,
+            "path": path,
+        }
+        image_info.update(kwargs)
+        self.image_info.append(image_info)
+        self.image_indices[image_id] = len(self.image_info) - 1
 
-        _mask = np.zeros((*self.config.IMG_SIZE, 2), dtype=np.float32)
+    def load_metadata(self, metadata, key):
+        """
+        metadata file has the following format:
+        {
+            "image": [<image_id>, <image_id>, ...],
+            "label": [<label_id>, <label_id>, ...]
+        }
 
-        #BACKGROUND_CLASS
-        _mask[:, :, 0] = np.where(y[:, :, 0] == 0, 1, 0)
-        #WELDING_DEFECT
-        _mask[:, :, 1] = np.where(y[:, :, 0] == 1, 1, 0)
+        Args:
+            metadata (str): Path to the metadata file
+            key (str): Key to load from the metadata file
+        """
 
-        y = torch.from_numpy(_mask).permute(2, 0, 1)
+        with open(metadata, 'r') as file:
+            data = json.load(file)
+        return data[key]
 
-        if self.transform is not None and self.labels:
-            x, y = self.transform(x, y)
-        elif self.transform is not None:
-            x = self.transform(x)
-
-        if self.labels:
-            x, y = x.to(self.inputs_dtype), y.to(self.targets_dtype)
-            y = y.squeeze(0)
-            return x, y
-        else:
-            x = x.to(self.inputs_dtype)
-            return x
-
+# Path: datasets/gdxray
 if __name__ == "__main__":
-    # Test the load dataset
-    class testConfig(Config):
-        DATA_DIR = 'dataset/gdxray/welding'
-        IMAGE_DIR = 'W0001'
-        LABEL_DIR = 'W0002'
-        IMG_SIZE = (256, 256)
+    config = {
+        'name': 'gdxray',
+        'data_dir': 'data/gdxray',
+        'subset': 'train',
+        'metadata': 'metadata',
+        'img_size': (512, 512)
+    }
 
-    config = testConfig()
-    dataset = GDXrayDataset(config, "train", labels=True)
-
-    for i in range(len(dataset)):
-        x, y = dataset[i]
-        print(x.shape, y.shape)
-        break
+    dataset = GDXrayDataset(config, labels=True, transform=None)
+    print(dataset.image_ids)

@@ -1,7 +1,11 @@
 import os
+import random
+
+import matplotlib.pyplot as plt
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
+
 
 class ImageLabelDataset(Dataset):
     def __init__(self, datadir, transform=None):
@@ -45,7 +49,7 @@ class ImageLabelDataset(Dataset):
         label_path = self.label_paths[idx]
 
         # Load image and label
-        image = Image.open(image_path).convert("RGB")  # Convert to RGB
+        image = Image.open(image_path)  # Convert to RGB
         label = Image.open(label_path).convert("L")    # Convert to grayscale
 
         if self.transform:
@@ -53,9 +57,6 @@ class ImageLabelDataset(Dataset):
             label = self.transform(label)  # Apply same transform to the label
 
         return image, label
-
-import random
-import matplotlib.pyplot as plt
 
 def visualize_samples(dataset, num_samples=3):
     """
@@ -84,12 +85,12 @@ def visualize_samples(dataset, num_samples=3):
 
         # Display the image
         axes[i][0].imshow(image)
-        axes[i][0].set_title(f"Image: {image_path.split('/')[-1]}")
+        axes[i][0].set_title(f"Image: {image_path.split('/')[-1].split('.')[0]} -- Size: {image.shape}")
         axes[i][0].axis('off')
 
         # Display the label
         axes[i][1].imshow(label, cmap='gray')
-        axes[i][1].set_title(f"Label: {label_path.split('/')[-1]}")
+        axes[i][1].set_title(f"Label: {label_path.split('/')[-1].split('.')[0]} -- Size: {label.shape}")
         axes[i][1].axis('off')
 
     plt.tight_layout()
