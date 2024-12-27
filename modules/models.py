@@ -285,11 +285,11 @@ class AdaptiveThresholdPrediction(nn.Module):
         super(AdaptiveThresholdPrediction, self).__init__()
 
         # First path: Conv1x1 -> STAF
-        self.conv1x1_main = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.conv1x1_main = nn.Conv2d(in_channels, 1, kernel_size=1)
 
         # Second path: Adaptive Max Pool -> Conv1x1 -> Threshold prediction
         self.adaptive_pool = nn.AdaptiveMaxPool2d(output_size=pool_size)
-        self.conv1x1_thresh = nn.Conv2d(in_channels, in_channels, kernel_size=1)
+        self.conv1x1_thresh = nn.Conv2d(in_channels, 1, kernel_size=1)
 
         # Learnable scalar for threshold prediction
         self.sigma = nn.Parameter(torch.tensor(1.0))  # Scale factor (learnable)
@@ -340,6 +340,9 @@ class WResHDC_FF(nn.Module):
         self.num_parallel = num_parallel # 1
         self.channel_ratio = channel_ratio
 
+        # First convolutional layer
+        self.conv1 = ConvBNReLU(3, output_list[0], 3, 1, 1, 1)
+
         # Initialize DCIM module
         self.dcim = DCIM(output_list, num_parallel)
 
@@ -368,6 +371,8 @@ class WResHDC_FF(nn.Module):
         self.atp = AdaptiveThresholdPrediction(in_channels=output_list[0], pool_size=(1, 1))
 
     def forward(self, x):
+
+        x = self.conv1(x)  # 3*320*320 -> 64*320*320
         # DCIM module
         X = self.dcim(x) # 5 levels of feature maps
         F = X.copy()
@@ -410,7 +415,7 @@ class WResHDC_FF(nn.Module):
 
 # Example usage
 if __name__ == '__main__':
-    input_tensor = torch.randn(1, 64, 320, 320)
+    input_tensor = torch.randn(1, 3, 320, 320)
     output_list = [64, 128, 256, 512, 1024]
     num_parallel = 2
     upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
@@ -423,5 +428,5 @@ if __name__ == '__main__':
     # print("Output shape:", [o.shape for o in output])
 
     # print model summary
-    model_info = torchinfo.summary(model, input_size=(1, 64, 320, 320))
-    print(model_info)
+    # model_info = torchinfo.summary(model, input_size=(1, 64, 320, 320))
+    # print(model_info)

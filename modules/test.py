@@ -49,7 +49,7 @@ class ImageLabelDataset(Dataset):
         label_path = self.label_paths[idx]
 
         # Load image and label
-        image = Image.open(image_path)  # Convert to RGB
+        image = Image.open(image_path).convert('RGB')  # Convert to RGB
         label = Image.open(label_path).convert("L")    # Convert to grayscale
 
         if self.transform:
