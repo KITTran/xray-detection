@@ -1,3 +1,5 @@
+#%%
+
 import os
 import sys
 import argparse
@@ -18,13 +20,15 @@ config = {
     'IMG_SIZE': (256, 256),
     'DATA_DIR': 'data/gdxray/welding/W0001',
     'LABEL_DIR': 'data/gdxray/welding/W0002',
-    'BATCH_SIZE': 32,
+    'BATCH_SIZE': 1,
     'EPOCHS': 10,
     'LR': 0.001,
     'DEVICE': 'cuda' if torch.cuda.is_available() else 'cpu'
 }
 
-datadir = "/home/tuank/projects/cracked-detection/dataset/gdxray/welding"
+print('Device: ', config['DEVICE'])
+
+datadir = "/home/kittran/projects/cracked-detection/dataset/gdxray/welding"
 
 # Define transforms
 transform = transforms.Compose([
@@ -48,6 +52,7 @@ num_parallel = 2
 upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
 
 model = models.WResHDC_FF(output_list, num_parallel, upsampling_cfg)
+model.to(config['DEVICE'])
 
 # Define the loss function
 criterion = smp.losses.DiceLoss(mode='binary')
@@ -55,22 +60,26 @@ criterion = smp.losses.DiceLoss(mode='binary')
 # Define the optimizer
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Train the model
-
-for epoch in range(10):
+# Train one epoch function and print the loss
+def train_one_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
+    running_loss = 0.0
     for i, (images, labels) in enumerate(dataloader):
-        images = images.to(config['DEVICE'])
-        labels = labels.to(config['DEVICE'])
-
+        images, labels = images.to(device), labels.to(device)
         optimizer.zero_grad()
         outputs = model(images)
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
+        running_loss += loss.item()
 
-        if i % 10 == 0:
-            print(f"Epoch: {epoch}, Iteration: {i}, Loss: {loss.item()}")
+    return running_loss / len(dataloader)
 
-# Save the model
-torch.save(model.state_dict(), 'model.pth')
+# Train the model for 10 epochs and reduce memory consumption each epoch 
+for epoch in range(10):
+    loss = train_one_epoch(model, dataloader, criterion, optimizer, config['DEVICE'])
+    print(f"Epoch {epoch+1}/{config['EPOCHS']}, Loss: {loss}")
+
+    # Disable gradient computation and reduce memory consumption.
+    with torch.no_grad():
+        torch.cuda.empty_cache()
