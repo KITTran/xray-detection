@@ -281,6 +281,10 @@ def visualize_samples(dataset, num_samples=3, labels=True):
         image_path = dataset.image_info[idx]["path"]
         label_path = dataset.image_info[idx]["label"]
 
+        if image.shape[0] == 3:
+            image = image.permute(1, 2, 0).numpy()
+            label = label.permute(1, 2, 0).numpy()
+
         # Display the image
         axes[i][0].imshow(image)
         axes[i][0].set_title(
