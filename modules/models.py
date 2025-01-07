@@ -133,20 +133,20 @@ class DCIM(nn.Module):
         self.U = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
         for k in range(self.num_parallel):
-            for l in range(self.levels):
-                idx = f"{l}_{k}"
-                input_channels = output_list[l] if l != 0 else 0 # Downsampled input channels
-                input_channels += 0 if k == 0 or l == self.levels - 1 else output_list[l] + output_list[l+1] # Skip connection and Upsampling
+            for level in range(self.levels):
+                idx = f"{level}_{k}"
+                input_channels = output_list[level] if level != 0 else 0 # Downsampled input channels
+                input_channels += 0 if k == 0 or level == self.levels - 1 else output_list[level] + output_list[level+1] # Skip connection and Upsampling
 
-                input_channels = output_list[l] if input_channels == 0 else input_channels
+                input_channels = output_list[level] if input_channels == 0 else input_channels
 
                 # print(f"Level {l}, Branch {k}, Input channels: {input_channels}")
 
-                self.H[idx] = ResHDCCBAM(input_channels, output_list[l], r)
+                self.H[idx] = ResHDCCBAM(input_channels, output_list[level], r)
 
-                if l < self.levels - 1:
+                if level < self.levels - 1:
                     # self.D[idx] = DownSampling(input_channels, output_list[l+1])
-                    self.D[idx] = DownSampling(output_list[l], output_list[l+1])
+                    self.D[idx] = DownSampling(output_list[level], output_list[level+1])
                 # if k < self.num_parallel - 1:
                 #     self.U[f"{l+1}_{k}"] = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
@@ -155,29 +155,29 @@ class DCIM(nn.Module):
         X = {}
 
         for k in range(self.num_parallel):
-            for l in range(self.levels):
-                idx = f"{l}_{k}"
+            for lvl in range(self.levels):
+                idx = f"{lvl}_{k}"
 
-                if l == 0:
+                if lvl == 0:
                     if k == 0:
                         X[idx] = self.H[idx](x)
                     else:
-                        U = self.U(X[f"{l+1}_{k-1}"])
-                        X[idx] = self.H[idx](torch.cat([X[f"{l}_{k-1}"], U], dim = 1))
+                        U = self.U(X[f"{lvl+1}_{k-1}"])
+                        X[idx] = self.H[idx](torch.cat([X[f"{lvl}_{k-1}"], U], dim = 1))
 
-                elif l > 0 and l < self.levels - 1:
+                elif lvl > 0 and lvl < self.levels - 1:
                     if k == 0:
-                        D = self.D[f"{l-1}_{k}"](X[f"{l-1}_{k}"])
+                        D = self.D[f"{lvl-1}_{k}"](X[f"{lvl-1}_{k}"])
                         X[idx] = self.H[idx](D)
                     else:
-                        D = self.D[f"{l-1}_{k}"](X[f"{l-1}_{k}"])
-                        U = self.U(X[f"{l+1}_{k-1}"])
-                        X[idx] = self.H[idx](torch.cat([X[f"{l}_{k-1}"], D, U], dim = 1))
-                elif l == self.levels - 1:
-                    D = self.D[f"{l-1}_{k}"](X[f"{l-1}_{k}"])
+                        D = self.D[f"{lvl-1}_{k}"](X[f"{lvl-1}_{k}"])
+                        U = self.U(X[f"{lvl+1}_{k-1}"])
+                        X[idx] = self.H[idx](torch.cat([X[f"{lvl}_{k-1}"], D, U], dim = 1))
+                elif lvl == self.levels - 1:
+                    D = self.D[f"{lvl-1}_{k}"](X[f"{lvl-1}_{k}"])
                     X[idx] = self.H[idx](D)
 
-        return [X[f"{l}_{self.num_parallel-1}"] for l in range(self.levels)]
+        return [X[f"{lvl}_{self.num_parallel-1}"] for lvl in range(self.levels)]
 
 class AFF(nn.Module):
     """
@@ -274,22 +274,24 @@ class ConvBNReLU(nn.Module):
         return x
 
 class AdaptiveThresholdPrediction(nn.Module):
-    def __init__(self, in_channels=64, pool_size=(1, 1)):
+    def __init__(self, in_channels=64, pool_size=(1, 1), num_classes=2):
         """
         Adaptive Threshold Prediction Module.
         Args:
             in_channels (int): Number of input channels.
             intermediate_channels (int): Number of intermediate channels (e.g., 64).
             pool_size (tuple): Adaptive pooling output size (default 1x1).
+        returns:
+            torch.Tensor: Thresholded output tensor of the same shape as the input tensor.
         """
         super(AdaptiveThresholdPrediction, self).__init__()
 
         # First path: Conv1x1 -> STAF
-        self.conv1x1_main = nn.Conv2d(in_channels, 1, kernel_size=1)
+        self.conv1x1_main = nn.Conv2d(in_channels, num_classes, kernel_size=1)
 
         # Second path: Adaptive Max Pool -> Conv1x1 -> Threshold prediction
         self.adaptive_pool = nn.AdaptiveMaxPool2d(output_size=pool_size)
-        self.conv1x1_thresh = nn.Conv2d(in_channels, 1, kernel_size=1)
+        self.conv1x1_thresh = nn.Conv2d(in_channels, num_classes, kernel_size=1)
 
         # Learnable scalar for threshold prediction
         self.sigma = nn.Parameter(torch.tensor(1.0))  # Scale factor (learnable)
@@ -316,11 +318,13 @@ class AdaptiveThresholdPrediction(nn.Module):
         # Apply threshold (modulation or scaling)
         output = main_output * threshold
 
+        assert output.shape[1] == 2, f"Output shape: {output.shape}"
+
         return output
 
 
 class WResHDC_FF(nn.Module):
-    def __init__(self, output_list, num_parallel, channel_ratio=16, upsample_cfg=dict(type='carafe', scale_factor = 2, kernel_up = 5, kernel_encoder = 3, compress_channels = 64)):
+    def __init__(self, num_classes, input_channels, output_list, num_parallel, channel_ratio=16, upsample_cfg=dict(type='carafe', scale_factor = 2, kernel_up = 5, kernel_encoder = 3, compress_channels = 64)):
         """
         The overall architecture of the WResHDC-FF models for semantic segmentation.
         It contains the following components:
@@ -329,6 +333,7 @@ class WResHDC_FF(nn.Module):
             3. CARAFE: Content-Aware ReAssembly of FEatures
 
         Args:
+            num_classes (int): Number of classes for the segmentation task
             output_list (list): List of output channels for each level
             num_parallel (int): Number of parallel branches in each level
             r (int): Reduction ratio for the channel attention module
@@ -340,48 +345,49 @@ class WResHDC_FF(nn.Module):
         self.num_parallel = num_parallel # 1
         self.channel_ratio = channel_ratio
 
-        # First convolutional layer
-        self.conv1 = ConvBNReLU(3, output_list[0], 3, 1, 1, 1)
+        # First convolutional layer as compress layer
+        # self.conv1 = ConvBNReLU(input_channels, output_list[0], 3, 1, 1, 1)
+        self.conv1 = nn.Conv2d(input_channels, output_list[0], kernel_size=1, stride=1)
 
         # Initialize DCIM module
         self.dcim = DCIM(output_list, num_parallel)
 
         self.aff = nn.ModuleList()
         # Initialize AFF module
-        for l in range(self.levels - 2):
-            self.aff.append(AFF(output_list[l] + output_list[l+1], output_list[l]))
+        for level in range(self.levels - 2):
+            self.aff.append(AFF(output_list[level] + output_list[level+1], output_list[level]))
 
         # Initialize CARAFE module
         self.upsample = nn.ModuleList()
         self.convbnrelu1 = nn.ModuleList()
         self.convbnrelu2 = nn.ModuleList()
-        for l in range(self.levels - 1, 0, -1):
+        for level in range(self.levels - 1, 0, -1):
             if upsample_cfg['type'] == 'carafe':
-                self.upsample.append(CARAFE(output_list[l],
+                self.upsample.append(CARAFE(output_list[level],
                                             upsample_cfg['scale_factor'],
                                             upsample_cfg['kernel_up'],
                                             upsample_cfg['kernel_encoder']))
             else:
                 self.upsample.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
 
-            self.convbnrelu1.append(ConvBNReLU(output_list[l] + output_list[l-1], output_list[l], 3, 1, 1, 1))
-            self.convbnrelu2.append(ConvBNReLU(output_list[l], output_list[l-1], 3, 1, 1, 1))
+            self.convbnrelu1.append(ConvBNReLU(output_list[level] + output_list[level-1], output_list[level], 3, 1, 1, 1))
+            self.convbnrelu2.append(ConvBNReLU(output_list[level], output_list[level-1], 3, 1, 1, 1))
 
         # Adaptive Threshold Prediction Module
-        self.atp = AdaptiveThresholdPrediction(in_channels=output_list[0], pool_size=(1, 1))
+        self.atp = AdaptiveThresholdPrediction(in_channels=output_list[0], pool_size=(1, 1), num_classes=num_classes)
 
     def forward(self, x):
 
         x = self.conv1(x)  # 3*320*320 -> 64*320*320
         # DCIM module
-        X = self.dcim(x) # 5 levels of feature maps
+        X = self.dcim(x) # levels of feature maps
         F = X.copy()
         # delete two last levels
         del F[self.levels-1]
 
         # Adaptive Feature Fusion module
-        for l in range(self.levels - 2): # 0, 1, 2
-            F[l] = self.aff[l](X[l], X[l+1])
+        for level in range(self.levels - 2): # 0, 1, 2
+            F[level] = self.aff[level](X[level], X[level+1])
 
         # Upsampling module
         # out = self.upsample[0](X[self.levels - 1]) # W*H*1024 -> 2W*2H*1024
@@ -405,28 +411,29 @@ class WResHDC_FF(nn.Module):
         # out = self.convbnrelu2[3](out)
 
         out = X[self.levels - 1]
-        for l in range(self.levels - 1, 0, -1):
-            out = self.upsample[self.levels - 1 - l](out)
-            out = torch.cat([out, F[l-1]], dim=1)
-            out = self.convbnrelu1[self.levels - 1 - l](out)
-            out = self.convbnrelu2[self.levels - 1 - l](out)
+        for level in range(self.levels - 1, 0, -1):
+            out = self.upsample[self.levels - 1 - level](out)
+            out = torch.cat([out, F[level-1]], dim=1)
+            out = self.convbnrelu1[self.levels - 1 - level](out)
+            out = self.convbnrelu2[self.levels - 1 - level](out)
 
         return self.atp(out)
 
 # Example usage
 if __name__ == '__main__':
     input_tensor = torch.randn(1, 3, 320, 320)
-    output_list = [64, 128, 256, 512, 1024]
+    output_list = [64, 128, 256, 512]
     num_parallel = 2
+    num_classes = 2
     upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
 
-    model = WResHDC_FF(output_list, num_parallel, upsampling_cfg)
+    model = WResHDC_FF(num_classes, input_tensor.shape[1], output_list, num_parallel, upsampling_cfg)
     # model = DCIM(output_list, num_parallel)
-    output = model(input_tensor)
+    # output = model(input_tensor)
 
-    print("Output shape:", output.shape)
+    # print("Output shape:", output.shape)
     # print("Output shape:", [o.shape for o in output])
 
     # print model summary
-    # model_info = torchinfo.summary(model, input_size=(1, 64, 320, 320))
-    # print(model_info)
+    model_info = torchinfo.summary(model, input_size=(1, 3, 320, 320))
+    print(model_info)
