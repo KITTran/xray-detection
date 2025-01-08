@@ -1,3 +1,4 @@
+import copy
 import os
 import cv2
 import json
@@ -10,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import v2
+from albumentations.pytorch import ToTensorV2
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -203,6 +205,8 @@ class GDXrayDataset(Dataset):
             if isinstance(self.transform, v2._container.Compose):
                 image = self.transform(image)
                 label = self.transform(label) if self.labels else None
+                if len(label.shape) == 3:
+                    label = label.unsqueeze(1)
             elif isinstance(self.transform, A.Compose):
                 transformed = self.transform(image=image, mask=label) if self.labels else self.transform(image=image)
                 image, label = transformed["image"], transformed["mask"] if self.labels else None
@@ -303,37 +307,15 @@ def visualize_samples(dataset, num_samples=3, labels=True):
     plt.tight_layout()
     plt.show()
 
-def visualize_augmentations(dataset, num_samples=3):
-    """
-    Visualize original and augmented samples from the dataset.
-
-    Args:
-        dataset (Dataset): The PyTorch Dataset to visualize.
-        num_samples (int): Number of random samples to visualize.
-    """
-    # Randomly select indices
-    indices = random.sample(range(len(dataset)), num_samples)
-
-    # Set up the Matplotlib figure
-    fig, axes = plt.subplots(num_samples, 2, figsize=(10, 5 * num_samples))
-    if num_samples == 1:
-        axes = [axes]  # Ensure axes is iterable for a single sample
-
-    for i, idx in enumerate(indices):
-        image_path = dataset.image_info[idx]["path"]
-        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        augmented = dataset.transform(image=image)["image"]
-
-        # Display the original image
-        axes[i][0].imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        axes[i][0].set_title(f"Original Image: {image_path.split('/')[-1]} -- Size: {image.shape}")
-        axes[i][0].axis("off")
-
-        # Display the augmented image
-        axes[i][1].imshow(cv2.cvtColor(augmented, cv2.COLOR_BGR2RGB))
-        axes[i][1].set_title(f"Augmented Image: {image_path.split('/')[-1]} -- Size: {augmented.shape}")
-        axes[i][1].axis("off")
-
+def visualize_augmentations(dataset, idx=0, samples=10, cols=5):
+    dataset = copy.deepcopy(dataset)
+    dataset.transform = A.Compose([t for t in dataset.transform if not isinstance(t, (A.Normalize, ToTensorV2))])
+    rows = samples // cols
+    figure, ax = plt.subplots(nrows=rows, ncols=cols, figsize=(12, 6))
+    for i in range(samples):
+        image, _ = dataset[idx]
+        ax.ravel()[i].imshow(image)
+        ax.ravel()[i].set_axis_off()
     plt.tight_layout()
     plt.show()
 
