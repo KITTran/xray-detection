@@ -6,7 +6,7 @@ import sys
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-import tqdm
+from tqdm import tqdm
 
 import matplotlib.pyplot as plt
 
@@ -35,8 +35,8 @@ config = {
         'save_dir': os.path.join(PARENT_DIR, "logs/gdxray")
    }
 
-transform_train = augmented.albumentations_transform_train(config['image_size'])
-transform_valid = augmented.albumentations_transform_valid(config['image_size'])
+transform_train = augmented.torch_transform_train(config['image_size'])
+transform_valid = augmented.torch_transform_valid(config['image_size'])
 
 train_dataset = utils.GDXrayDataset(config, labels=config['labels'], transform=transform_train)
 valid_dataset = utils.GDXrayDataset(config, labels=config['labels'], transform=transform_valid)
