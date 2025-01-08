@@ -98,3 +98,62 @@ class DiceLoss(nn.Module):
                 total_loss += dice_loss
 
         return total_loss/target.shape[1]
+
+def dice_loss(output, target, weights=None, ignore_index=None):
+    """
+    output : NxCxHxW Variable
+    target :  NxHxW LongTensor
+    weights : C FloatTensor
+    ignore_index : int index to ignore from loss
+    """
+    eps = 0.0001
+
+    output = output.exp()
+    encoded_target = output.detach() * 0
+    if ignore_index is not None:
+        mask = target == ignore_index
+        target = target.clone()
+        target[mask] = 0
+        encoded_target.scatter_(1, target.unsqueeze(1), 1)
+        mask = mask.unsqueeze(1).expand_as(encoded_target)
+        encoded_target[mask] = 0
+    else:
+        encoded_target.scatter_(1, target.unsqueeze(1), 1)
+
+    if weights is None:
+        weights = 1
+
+    intersection = output * encoded_target
+    numerator = 2 * intersection.sum(0).sum(1).sum(1)
+    denominator = output + encoded_target
+
+    if ignore_index is not None:
+        denominator[mask] = 0
+    denominator = denominator.sum(0).sum(1).sum(1) + eps
+    loss_per_channel = weights * (1 - (numerator / denominator))
+
+    return loss_per_channel.sum() / output.size(1)
+
+if __name__ == "__main__":
+
+    # Example prediction tensor for 2 classes (background and defect)
+    predict = torch.randn(3, 2, 256, 256)  # Batch size of 3, 2 classes, 256x256 image
+
+    # Example target tensor for 2 classes (background and defect)
+    target = torch.randint(0, 2, (3, 1, 256, 256))  # Batch size of 3, 1 channel, 256x256 image
+
+    # # Calculate loss using custom dice_loss function
+    # loss = dice_loss(predict, target)
+
+    # print("Dice Loss:", loss.item())
+
+    # Convert target to one-hot encoding
+    target = make_one_hot(target, num_classes=2)
+
+    # Initialize DiceLoss
+    dice_loss1 = DiceLoss()
+
+    # Calculate loss
+    loss = dice_loss1(predict, target)
+
+    print("Dice Loss:", loss.item())
