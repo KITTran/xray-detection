@@ -1,5 +1,6 @@
 import os
 import cv2
+import json
 import math
 import random
 
@@ -335,6 +336,17 @@ def visualize_augmentations(dataset, num_samples=3):
 
     plt.tight_layout()
     plt.show()
+
+def save_metrics(save_dir, prefix, train_losses, train_dcs, valid_losses, valid_dcs):
+    metrics = {
+        'train_losses': train_losses,
+        'train_dcs': train_dcs,
+        'valid_losses': valid_losses,
+        'valid_dcs': valid_dcs
+    }
+
+    with open(os.path.join(save_dir, f"metrics_{prefix}.json"), 'w') as f:
+        json.dump(metrics, f)
 
 
 # Path: datasets/gdxray
