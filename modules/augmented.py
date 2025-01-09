@@ -1,7 +1,6 @@
 %load_ext autoreload
 %autoreload 2
 
-from random import sample
 from torchvision.transforms import v2
 from torchvision.transforms.functional import InterpolationMode
 
@@ -47,7 +46,7 @@ if __name__ == '__main__':
         "image_size": (224, 224),
     }
 
-    transform = torh_train_transform(size=config["image_size"])
+    transform = torch_train_transform(size=config["image_size"])
 
     dataset = utils.GDXrayDataset(config, labels=True, transform=transform)
 
