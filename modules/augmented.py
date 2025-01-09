@@ -10,7 +10,7 @@ import torch
 
 # Define the transformations as functions
 
-def torh_train_transform(size=(224, 224), scale=(0.08, 1.0), rotation=30, flip=0.5):
+def torch_train_transform(size=(224, 224), scale=(0.08, 1.0), rotation=30, flip=0.5):
     image_transforms = v2.Compose([
         # v2.ToImage(),
         v2.RandomCrop(size),  # Random crop of size 256x256
@@ -29,7 +29,7 @@ def torh_train_transform(size=(224, 224), scale=(0.08, 1.0), rotation=30, flip=0
 
     return image_transforms
 
-def torh_val_transform(size=(224, 224)):
+def torch_val_transform(size=(224, 224)):
     image_transforms = v2.Compose([
         v2.Resize(size),
         v2.PILToTensor(),
