@@ -208,7 +208,9 @@ class GDXrayDataset(Dataset):
             image, label = self.transform(image, label) if self.labels else self.transform(image)
 
         if self.labels:
-            return image, label
+            return image, v2.ToTensor()(label).squeeze(0)
+        
+        return image
 
     def add_class(self, source, class_id, class_name):
         assert "." not in source, "Source name cannot contain a dot"
@@ -350,12 +352,17 @@ if __name__ == "__main__":
         "subset": "train",
     }
 
-    transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5)])
+    transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5), v2.ToTensor()])
 
     dataset = GDXrayDataset(config, labels=True, transform=transform)
 
     loader = DataLoader(dataset, batch_size=2, shuffle=True)
 
-    visualize_samples(dataset, num_samples=3, labels=True)
+    for i, (image, label) in enumerate(loader):
+        print(image.shape, label.shape)
+        if i == 0:
+            break
+
+    # visualize_samples(dataset, num_samples=3, labels=True)
 
     # visualize_augmentations(dataset, num_samples=3)
