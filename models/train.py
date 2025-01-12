@@ -4,8 +4,9 @@ import os
 import sys
 
 import torch
-import torch.optim as optim
+from torch import nn, optim
 from torch.utils.data import DataLoader
+from torch.nn import functional as F
 import tqdm
 
 import matplotlib.pyplot as plt
@@ -61,7 +62,7 @@ model = models.WResHDC_FF(num_classes, 3, output_list, num_parallel, upsample_cf
 model.to(config['device'])
 
 optimizer = optim.AdamW(model.parameters(), lr=config['learning_rate'])
-criterion = losses.BinaryDiceLoss()
+criterion = nn.BCEWithLogitsLoss()
 
 torch.cuda.empty_cache()
 
@@ -77,14 +78,16 @@ for epoch in tqdm(range(config['epochs'])):
     train_running_dc = 0.0
 
     for idx, img_mask in enumerate(tqdm(train_dataloader, position=0, leave=True)):
-        img = img_mask['image'].to(config['device'], dtype=torch.float32)
-        mask = img_mask['mask'].to(config['device'], dtype=torch.float32)
+        img = img_mask[0].to(config['device'], dtype=torch.float32)
+        mask = img_mask[1].to(config['device'], dtype=torch.long)
 
         y_pred = model(img)
         optimizer.zero_grad()
 
-        dc = metrics.dice_coefficient(y_pred, mask)
-        loss = criterion(y_pred, mask)
+        dc = metrics.dice_coefficient(y_pred.squeeze(1), mask.float())
+        loss = criterion(y_pred.squeeze(1), mask.float())
+        loss += losses.dice_loss(F.sigmoid(y_pred.squeeze(1)), mask.float(), multiclass=False)
+
 
         train_running_loss += loss.item()
         train_running_dc += dc.item()
@@ -104,12 +107,13 @@ for epoch in tqdm(range(config['epochs'])):
 
     with torch.no_grad():
         for idx, img_mask in enumerate(tqdm(valid_dataloader, position=0, leave=True)):
-            img = img_mask['image'].to(config['device'], dtype=torch.float32)
-            mask = img_mask['mask'].to(config['device'], dtype=torch.float32)
+            img = img_mask[0].to(config['device'], dtype=torch.float32)
+            mask = img_mask[1].to(config['device'], dtype=torch.long)
 
             y_pred = model(img)
-            loss = criterion
-            dc = metrics.dice_coefficient(y_pred, mask)
+            loss = criterion(y_pred.squeeze(1), mask)
+            loss += losses.dice_loss(F.sigmoid(y_pred.squeeze(1)), mask.float(), multiclass=False)
+            dc = metrics.dice_coefficient(y_pred.squeeze(1), mask.float())
 
             val_running_loss += loss.item()
             val_running_dc += dc.item()
