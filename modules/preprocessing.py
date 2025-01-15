@@ -11,7 +11,7 @@ from skimage.color import rgb2gray
 
 # Import dataset
 def load_images_from_folders(folder_list):
-    images = []; img_names = []
+    images = [], img_names = []
     for folder in folder_list:
         for filename in os.listdir(folder):
             if filename.endswith(".jpg"):

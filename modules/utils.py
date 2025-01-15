@@ -1,15 +1,16 @@
+import copy
 import os
-import cv2
 import json
 import math
 import random
 
 import numpy as np
-import albumentations as A
 import matplotlib.pyplot as plt
 
+from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import v2
+from torchvision.utils import draw_segmentation_masks
 
 CURRENT_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -192,23 +193,24 @@ class GDXrayDataset(Dataset):
         """
 
         image_path = self.image_info[idx]["path"]
-        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        self.update_info(idx, height_org=image.shape[0], width_org=image.shape[1])
+        # image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        # self.update_info(idx, height_org=image.shape[0], width_org=image.shape[1])
+        image = Image.open(image_path).convert('RGB')
+        width, height = image.size
+        self.update_info(idx, height_org=width, width_org=height)
 
         if self.labels:
             label_path = self.image_info[idx]["label"]
-            label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
+            # label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
+            label = Image.open(label_path).convert('L') # read as grayscale
 
         if self.transform:
-            if isinstance(self.transform, v2._container.Compose):
-                image = self.transform(image)
-                label = self.transform(label) if self.labels else None
-            elif isinstance(self.transform, A.Compose):
-                transformed = self.transform(image=image, mask=label) if self.labels else self.transform(image=image)
-                image, label = transformed["image"], transformed["mask"] if self.labels else None
+            image, label = self.transform(image, label) if self.labels else self.transform(image)
 
         if self.labels:
-            return image, label
+            return image, v2.ToTensor()(label).squeeze(0)
+        
+        return image
 
     def add_class(self, source, class_id, class_name):
         assert "." not in source, "Source name cannot contain a dot"
@@ -269,6 +271,10 @@ def visualize_samples(dataset, num_samples=3, labels=True):
         dataset (Dataset): The PyTorch Dataset to visualize.
         num_samples (int): Number of random samples to visualize.
     """
+
+    # Print a message notifying that the transformation is applied
+    print("CAUTION!!!! Be careful with normalization...") if dataset.transform is not None else None
+
     # Randomly select indices
     indices = random.sample(range(len(dataset)), num_samples)
 
@@ -282,9 +288,11 @@ def visualize_samples(dataset, num_samples=3, labels=True):
         image_path = dataset.image_info[idx]["path"]
         label_path = dataset.image_info[idx]["label"]
 
-        if image.shape[0] == 3:
-            image = image.permute(1, 2, 0).numpy()
-            label = label.permute(1, 2, 0).numpy()
+        image, label = v2.ToTensor()(image), v2.ToTensor()(label)
+        image_mask = draw_segmentation_masks(image, label.bool(), alpha=0.5)
+
+        image = image.permute(1, 2, 0).numpy()
+        image_mask = image_mask.permute(1, 2, 0).numpy()
 
         # Display the image
         axes[i][0].imshow(image)
@@ -294,7 +302,7 @@ def visualize_samples(dataset, num_samples=3, labels=True):
         axes[i][0].axis("off")
 
         # Display the label
-        axes[i][1].imshow(label, cmap="gray")
+        axes[i][1].imshow(image_mask)
         axes[i][1].set_title(
             f"Label: {label_path.split('/')[-1].split('.')[0]} -- Size: {label.shape}"
         )
@@ -303,37 +311,23 @@ def visualize_samples(dataset, num_samples=3, labels=True):
     plt.tight_layout()
     plt.show()
 
-def visualize_augmentations(dataset, num_samples=3):
-    """
-    Visualize original and augmented samples from the dataset.
-
-    Args:
-        dataset (Dataset): The PyTorch Dataset to visualize.
-        num_samples (int): Number of random samples to visualize.
-    """
-    # Randomly select indices
-    indices = random.sample(range(len(dataset)), num_samples)
-
-    # Set up the Matplotlib figure
-    fig, axes = plt.subplots(num_samples, 2, figsize=(10, 5 * num_samples))
-    if num_samples == 1:
-        axes = [axes]  # Ensure axes is iterable for a single sample
-
-    for i, idx in enumerate(indices):
-        image_path = dataset.image_info[idx]["path"]
-        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        augmented = dataset.transform(image=image)["image"]
-
-        # Display the original image
-        axes[i][0].imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        axes[i][0].set_title(f"Original Image: {image_path.split('/')[-1]} -- Size: {image.shape}")
-        axes[i][0].axis("off")
-
-        # Display the augmented image
-        axes[i][1].imshow(cv2.cvtColor(augmented, cv2.COLOR_BGR2RGB))
-        axes[i][1].set_title(f"Augmented Image: {image_path.split('/')[-1]} -- Size: {augmented.shape}")
-        axes[i][1].axis("off")
-
+def visualize_augmentations(dataset, idx=0, samples=10, cols=5):
+    dataset = copy.deepcopy(dataset)
+    # get transform from dataset and remove normalization
+    transform = dataset.transform.transforms[:-1]
+    dataset.transform = v2.Compose(transform)
+    rows = samples // cols
+    figure, ax = plt.subplots(nrows=rows, ncols=cols * 2, figsize=(12, 6))
+    for i in range(samples):
+        image, mask = dataset[idx]
+        image = image.permute(1, 2, 0).numpy()
+        mask = mask.permute(1, 2, 0).numpy()
+        ax.ravel()[i * 2].imshow(image)
+        ax.ravel()[i * 2].set_title("Image")
+        ax.ravel()[i * 2].set_axis_off()
+        ax.ravel()[i * 2 + 1].imshow(mask, cmap='gray')
+        ax.ravel()[i * 2 + 1].set_title("Mask")
+        ax.ravel()[i * 2 + 1].set_axis_off()
     plt.tight_layout()
     plt.show()
 
@@ -358,12 +352,17 @@ if __name__ == "__main__":
         "subset": "train",
     }
 
-    transform = A.Compose([A.Resize(244, 244), A.RandomRotate90(0.5)])
+    transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5), v2.ToTensor()])
 
-    dataset = GDXrayDataset(config, labels=True, transform=None)
+    dataset = GDXrayDataset(config, labels=True, transform=transform)
 
     loader = DataLoader(dataset, batch_size=2, shuffle=True)
 
-    visualize_samples(dataset, num_samples=3, labels=True)
+    for i, (image, label) in enumerate(loader):
+        print(image.shape, label.shape)
+        if i == 0:
+            break
+
+    # visualize_samples(dataset, num_samples=3, labels=True)
 
     # visualize_augmentations(dataset, num_samples=3)
