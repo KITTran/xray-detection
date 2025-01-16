@@ -418,6 +418,60 @@ class WResHDC_FF(nn.Module):
             out = self.convbnrelu2[self.levels - 1 - level](out)
 
         return self.atp(out)
+    
+class ResHDC_Model(nn.Module):
+    def __init__(self, num_classes, input_channels, output_list, channel_ratio=16, upsample_cfg=dict(type='carafe', scale_factor = 2, kernel_up = 5, kernel_encoder = 3, compress_channels = 64)):
+        super(ResHDC_Model, self).__init__()
+        self.num_classes = num_classes
+
+        self.conv1 = nn.Conv2d(input_channels, output_list[0], kernel_size=1, stride=1) # 3*320*320 -> 64*320*320
+        self.reshdc_branch = nn.ModuleList()
+
+        for i in range(len(output_list)):
+            self.reshdc_branch.append(ResHDCCBAM(output_list[i], output_list[i], channel_ratio))
+
+        # adaptive feature fusion = len(output_list) - 2
+        self.aff = nn.ModuleList()
+        for i in range(len(output_list) - 2):
+            self.aff.append(AFF(output_list[i] + output_list[i+1], output_list[i]))
+        
+        # upsampling with CARAFE = len(output_list) - 1
+        self.upsample = nn.ModuleList()
+        self.convbnrelu1 = nn.ModuleList()
+        self.convbnrelu2 = nn.ModuleList()
+
+        for i in range(len(output_list) - 1):
+            if upsample_cfg['type'] == 'carafe':
+                self.upsample.append(CARAFE(output_list[i], upsample_cfg['scale_factor'], upsample_cfg['kernel_up'], upsample_cfg['kernel_encoder']))
+            else:
+                self.upsample.append(nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True))
+
+            self.convbnrelu1.append(ConvBNReLU(output_list[i] + output_list[i+1], output_list[i], 3, 1, 1, 1))
+            self.convbnrelu2.append(ConvBNReLU(output_list[i], output_list[i+1], 3, 1, 1, 1))
+
+        # Adaptive Threshold Prediction Module
+        self.atp = AdaptiveThresholdPrediction(in_channels=output_list[0], pool_size=(1, 1), num_classes=num_classes)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        X = []
+        for i in range(len(self.reshdc_branch)):
+            x = self.reshdc_branch[i](x)
+            X.append(x)
+        
+        F = X.copy()
+        del F[-1]
+        for i in range(len(self.aff)):
+            F[i] = self.aff[i](X[i], X[i+1])
+        
+        out = X[-1]
+        for i in range(len(self.upsample)):
+            out = self.upsample[i](out)
+            out = torch.cat([out, F[i]], dim=1)
+            out = self.convbnrelu1[i](out)
+            out = self.convbnrelu2[i](out)
+        
+        return self.atp(out)
 
 # Example usage
 if __name__ == '__main__':
