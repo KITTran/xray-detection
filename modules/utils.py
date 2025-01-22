@@ -208,8 +208,8 @@ class GDXrayDataset(Dataset):
             image, label = self.transform(image, label) if self.labels else self.transform(image)
 
         if self.labels:
-            return image, v2.ToTensor()(label).squeeze(0)
-        
+            return image, v2.ToTensor()(label)
+
         return image
 
     def add_class(self, source, class_id, class_name):
