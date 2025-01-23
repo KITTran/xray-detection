@@ -418,7 +418,7 @@ class WResHDC_FF(nn.Module):
             out = self.convbnrelu2[self.levels - 1 - level](out)
 
         return self.atp(out)
-    
+
 class ResHDC_Model(nn.Module):
     def __init__(self, num_classes, input_channels, output_list, channel_ratio=16, upsample_cfg=dict(type='carafe', scale_factor = 2, kernel_up = 5, kernel_encoder = 3, compress_channels = 64)):
         super(ResHDC_Model, self).__init__()
@@ -434,7 +434,7 @@ class ResHDC_Model(nn.Module):
         self.aff = nn.ModuleList()
         for i in range(len(output_list) - 2):
             self.aff.append(AFF(output_list[i] + output_list[i+1], output_list[i]))
-        
+
         # upsampling with CARAFE = len(output_list) - 1
         self.upsample = nn.ModuleList()
         self.convbnrelu1 = nn.ModuleList()
@@ -458,20 +458,135 @@ class ResHDC_Model(nn.Module):
         for i in range(len(self.reshdc_branch)):
             x = self.reshdc_branch[i](x)
             X.append(x)
-        
+
         F = X.copy()
         del F[-1]
         for i in range(len(self.aff)):
             F[i] = self.aff[i](X[i], X[i+1])
-        
+
         out = X[-1]
         for i in range(len(self.upsample)):
             out = self.upsample[i](out)
             out = torch.cat([out, F[i]], dim=1)
             out = self.convbnrelu1[i](out)
             out = self.convbnrelu2[i](out)
-        
+
         return self.atp(out)
+
+class UNetEncoder(nn.Module):
+    def __init__(self, input_channels, output_list):
+        super(UNetEncoder, self).__init__()
+
+        self.conv1 = ConvBNReLU(input_channels, output_list[0], kernel_size=3, stride=1)
+        self.conv2 = ConvBNReLU(output_list[0], output_list[0], kernel_size=3, stride=1)
+        self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        self.conv3 = ConvBNReLU(output_list[0], output_list[1], kernel_size=3, stride=1)
+        self.conv4 = ConvBNReLU(output_list[1], output_list[1], kernel_size=3, stride=1)
+        self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        self.conv5 = ConvBNReLU(output_list[1], output_list[2], kernel_size=3, stride=1)
+        self.conv6 = ConvBNReLU(output_list[2], output_list[2], kernel_size=3, stride=1)
+        self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        self.conv7 = ConvBNReLU(output_list[2], output_list[3], kernel_size=3, stride=1)
+        self.conv8 = ConvBNReLU(output_list[3], output_list[3], kernel_size=3, stride=1)
+        self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+        self.conv9 = ConvBNReLU(output_list[3], output_list[4], kernel_size=3, stride=1)
+        self.conv10 = ConvBNReLU(output_list[4], output_list[4], kernel_size=3, stride=1)
+        self.pool5 = nn.MaxPool2d(kernel_size=2, stride=2)
+
+    def __call__(self, inputs):
+        x1 = self.conv1(inputs)
+        x1 = self.conv2(x1)
+        x2 = self.pool1(x1)
+
+        x2 = self.conv3(x2)
+        x2 = self.conv4(x2)
+        x3 = self.pool2(x2)
+
+        x3 = self.conv5(x3)
+        x3 = self.conv6(x3)
+        x4 = self.pool3(x3)
+
+        x4 = self.conv7(x4)
+        x4 = self.conv8(x4)
+        x5 = self.pool4(x4)
+
+        x5 = self.conv9(x5)
+        x5 = self.conv10(x5)
+        x6 = self.pool5(x5)
+
+        return x1, x2, x3, x4, x5, x6
+
+class UNetDecoder(nn.Module):
+    def __init__(self, output_list):
+        super(UNetDecoder, self).__init__()
+
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+        self.conv11 = ConvBNReLU(output_list[4]*2, output_list[3], kernel_size=3, stride=1)
+        self.conv12 = ConvBNReLU(output_list[3], output_list[3], kernel_size=3, stride=1)
+
+        self.conv13 = ConvBNReLU(output_list[3]*3, output_list[2], kernel_size=3, stride=1)
+        self.conv14 = ConvBNReLU(output_list[2], output_list[2], kernel_size=3, stride=1)
+
+        self.conv15 = ConvBNReLU(output_list[2]*3, output_list[1], kernel_size=3, stride=1)
+        self.conv16 = ConvBNReLU(output_list[1], output_list[1], kernel_size=3, stride=1)
+
+        self.conv17 = ConvBNReLU(output_list[1]*3, output_list[0], kernel_size=3, stride=1)
+        self.conv18 = ConvBNReLU(output_list[0], output_list[0], kernel_size=3, stride=1)
+
+        self.conv19 = ConvBNReLU(output_list[0]*3, 1, kernel_size=3, stride=1, use_relu=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def __call__(self, x1, x2, x3, x4, x5, x6):
+        out = self.upsample(x6)
+        out = torch.cat([out, x5], dim=1)
+        out = self.conv11(out)
+        out = self.conv12(out)
+
+        out = self.upsample(out)
+        x5 = self.upsample(x5)
+        out = torch.cat([out, x4, x5], dim=1)
+        out = self.conv13(out)
+        out = self.conv14(out)
+
+        out = self.upsample(out)
+        x4 = self.upsample(x4)
+        out = torch.cat([out, x3, x4], dim=1)
+        out = self.conv15(out)
+        out = self.conv16(out)
+
+        out = self.upsample(out)
+        x3 = self.upsample(x3)
+        out = torch.cat([out, x2, x3], dim=1)
+        out = self.conv17(out)
+        out = self.conv18(out)
+
+        out = self.upsample(out)
+        x2 = self.upsample(x2)
+        out = torch.cat([out, x1, x2], dim=1)
+        out = self.conv19(out)
+        out = self.sigmoid(out)
+
+        return out
+
+class UNet(nn.Module):
+    def __init__(self, num_classes, input_channels, output_list):
+        super(UNet, self).__init__()
+        self.num_classes = num_classes
+        self.input_channels = input_channels
+        self.output_list = output_list
+
+        self.encoder = UNetEncoder(input_channels, output_list)
+        self.decoder = UNetDecoder(output_list)
+
+    def forward(self, x):
+        x1, x2, x3, x4, x5, x6 = self.encoder(x)
+        out = self.decoder(x1, x2, x3, x4, x5, x6)
+        return out
 
 # Example usage
 if __name__ == '__main__':
