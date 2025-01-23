@@ -1,197 +1,265 @@
 %load_ext autoreload
 %autoreload 2
 
-from shapely import transform
-from torchvision.transforms import v2
-from torchvision.transforms.functional import InterpolationMode
-
 import utils
 import torch
-
-import random
-import numpy as np
-from PIL import Image, ImageOps
 import cv2
 
-# Define the transformations as functions
+from PIL import Image
+from torchvision.transforms import v2
+from torchvision.transforms.functional import InterpolationMode, pad, rotate, affine
 
-def torch_train_transform(size=(224, 224), scale=(0.08, 1.0), rotation=30, flip=0.5):
-    image_transforms = v2.Compose([
-        # v2.ToImage(),
-        # v2.RandomCrop(size),  # Random crop of size 256x256
-        # v2.Resize(size),
-        # v2.RandomRotation(degrees=rotation, interpolation=InterpolationMode.BILINEAR),  # Random rotation within 30 degrees
-        # v2.RandomResize(size=size, scale=scale),  # Random rescale and crop
-        # v2.RandomAffine(degrees=0, translate=(0.2, 0)),  # Random affine transformation
-        # v2.RandomHorizontalFlip(p=flip),  # Random horizontal flip
-        # v2.GaussianBlur(kernel_size=9),  # Apply Gaussian blur
-        # v2.RandomErasing(p=0.5),  # Random cutout
-        # v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # Random color jitter
-        # v2.ToDtype(torch.float32, scale=True),
-        v2.ToTensor(),
-        v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+# Define the transformations as functionss
 
-    return image_transforms
+class MyGammaTransform(torch.nn.Module):
+    def __init__(self, c=1, gamma=0.7):
+        super(MyGammaTransform, self).__init__()
+        self.c = c
+        self.gamma = gamma
 
-def torch_val_transform(size=(224, 224)):
-    image_transforms = v2.Compose([
-        v2.Resize(size),
-        v2.PILToTensor(),
-        v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    ])
+    def forward(self, img, label = None):
+        img = v2.PILToTensor()(img) / 255.0
+        transformed = self.c * (img ** self.gamma)
+        transformed = torch.clamp(transformed * 255.0, 0, 255).type(torch.float32)
+        return transformed, label if label is not None else transformed
 
-    return image_transforms
+class MyLinearTransform(torch.nn.Module):
+    def __init__(self, k=0.85, b=0.3):
+        super(MyLinearTransform, self).__init__()
+        self.k = k
+        self.b = b
 
-class CustomAugmentation:
-    def __init__(self):
-        self.random_rotation = (1, 3)  # RandomRotation
-        self.num_holes = 10  # RandomCutout
-        self.max_h_size = 40
-        self.max_w_size = 40
-        self.fill_value = 0
-        self.gaussian_mean = 0.2  # RandomGaussian
-        self.gaussian_sigma = 0.3
+    def forward(self, img, label = None):
+        img = v2.PILToTensor()(img) / 255.0
+        transformed = self.k * img + self.b
+        transformed = torch.clamp(transformed * 255.0, 0, 255).type(torch.float32)
+        return transformed, label if label is not None else transformed
 
-        self.transforms = [
-            lambda img, msk: self.random_crop(img, msk),
-            lambda img, msk: v2.RandomRotation(self.random_rotation)(img, msk),
-            lambda img, msk: self.random_shift(img, msk),
-            lambda img, msk: self.random_rotate(img, msk),
-            lambda img, msk: v2.RandomHorizontalFlip()(img, msk),
-            lambda img, msk: self.random_cutout(img, msk),
-        ]
+# class MyHistogramEqualization(torch.nn.Module):
+#     def __init__(self):
+#         super(MyHistogramEqualization, self).__init__()
 
-        self.color_transforms = [
-            lambda img: v2.ColorJitter()(img),
-            lambda img: self.random_gaussian(img),
-        ]
+#     def forward(self, img, label = None):
+#         img = img.numpy()
 
-    def random_crop(self, image, mask):
-        cropping_number = 2  # RandomCrop
-        width, height = image.size
-        for _ in range(cropping_number):
-            left = random.randint(0, width // 4)
-            top = random.randint(0, height // 4)
-            right = random.randint(3 * width // 4, width)
-            bottom = random.randint(3 * height // 4, height)
-            image = image.crop((left, top, right, bottom))
-            mask = mask.crop((left, top, right, bottom))
-        return image, mask
+#         if len(img.shape) == 3 and img.shape[0] == 3:  # Color image
+#             img_yuv = cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+#             img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
+#             equalized = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2RGB)
+#         else:  # Grayscale image
+#             equalized = cv2.equalizeHist(img)
 
-    def random_cutout(self, image, mask):
-        img_np = np.array(image)
-        mask_np = np.array(mask)
-        for _ in range(self.num_holes):
-            y = random.randint(0, img_np.shape[0] - self.max_h_size)
-            x = random.randint(0, img_np.shape[1] - self.max_w_size)
-            img_np[y:y + self.max_h_size, x:x + self.max_w_size, :] = self.fill_value
-            mask_np[y:y + self.max_h_size, x:x + self.max_w_size] = self.fill_value
-        return Image.fromarray(img_np), Image.fromarray(mask_np)
+#         print('Dtype of equalized:', equalized.dtype)
+#         print('Shape of equalized:', equalized.shape)
 
-    def random_gaussian(self, image):
-        img_np = np.array(image).astype(np.float32) / 255.0
-        noise = np.random.normal(self.gaussian_mean, self.gaussian_sigma, img_np.shape)
-        img_np = np.clip(img_np + noise, 0, 1) * 255.0
-        return Image.fromarray(img_np.astype(np.uint8))
+        return torch.from_numpy(equalized), label if label is not None else torch.from_numpy(equalized)
 
-    def random_rotate(self, image, mask):
-        angle = random.uniform(-180, 180)
-        image = ImageOps.expand(image.rotate(angle, expand=True), border=1, fill=0)
-        mask = ImageOps.expand(mask.rotate(angle, expand=True), border=1, fill=0)
-        return image, mask
-
-    def random_shift(self, image, mask):
-        width, height = image.size
-        shift_x = random.randint(-width // 10, width // 10)
-        shift_y = random.randint(-height // 10, height // 10)
-        image = ImageOps.offset(image, shift_x, shift_y)
-        mask = ImageOps.offset(mask, shift_x, shift_y)
-        return image, mask
-
-    def __call__(self, image, mask):
-
-        for geo_transform in self.transforms:
-            image, mask = geo_transform(image, mask)
-
-        # Apply color transformations
-        for color_transform in self.color_transforms:
-            image = color_transform(image)
-
-        return image, mask
-
-class UNetAugmentation:
-    def __init__(self, patch_size=(224, 224), training=True):
-
+class MyUniformCrop(torch.nn.Module):
+    def __init__(self, patch_size):
+        super(MyUniformCrop, self).__init__()
         self.patch_size = patch_size
-        self.training = training
-        self.transforms = [
-            lambda img: self.gamma_transformation(img),
-            lambda img: self.linear_transformation(img),
-            lambda img: self.add_gaussian_noise(img),
-            lambda img: self.histogram_equalization(img),
-        ]
 
-        self.img_mask_transforms = [
-            lambda img, mask: self.random_crop(img, mask, self.patch_size) if self.training else self.uniform_crop(img, mask, self.patch_size),
-        ]
-
-    def __call__(self, image, mask):
-
-        for img_transform in self.transforms:
-            image = img_transform(image)
-
-        for img_mask_transform in self.img_mask_transforms:
-            image, mask = img_mask_transform(image, mask)
-
-        return image, mask
-
-    def gamma_transformation(self, image, c=1, gamma=0.7):
-        image = np.array(image) / 255.0  # Normalize to [0, 1]
-        transformed = c * (image ** gamma)
-        transformed = np.clip(transformed * 255.0, 0, 255).astype(np.uint8)  # Scale back to [0, 255]
-        return Image.fromarray(transformed)
-
-    def linear_transformation(self, image, k=0.85, b=0.3):
-        image = np.array(image) / 255.0  # Normalize to [0, 1]
-        transformed = k * image + b
-        transformed = np.clip(transformed * 255.0, 0, 255).astype(np.uint8)  # Scale back to [0, 255]
-        return Image.fromarray(transformed)
-
-    def add_gaussian_noise(self, image, mean=0, std=0.02):
-        image = np.array(image) / 255.0  # Normalize to [0, 1]
-        noise = np.random.normal(mean, std, image.shape)
-        noisy_image = image + noise
-        noisy_image = np.clip(noisy_image * 255.0, 0, 255).astype(np.uint8)  # Scale back to [0, 255]
-        return Image.fromarray(noisy_image)
-
-    def histogram_equalization(self, image):
-        image = np.array(image)
-        if len(image.shape) == 3 and image.shape[2] == 3:  # Color image
-            img_yuv = cv2.cvtColor(image, cv2.COLOR_RGB2YUV)
-            img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
-            equalized = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2RGB)
-        else:  # Grayscale image
-            equalized = cv2.equalizeHist(image)
-        return Image.fromarray(equalized)
-
-    def random_crop(self, image, mask, patch_size):
-        width, height = image.size
-        crop_width, crop_height = patch_size
-        left = random.randint(0, width - crop_width)
-        upper = random.randint(0, height - crop_height)
-        right = left + crop_width
-        lower = upper + crop_height
-        return image.crop((left, upper, right, lower)), mask.crop((left, upper, right, lower))
-
-    def uniform_crop(self, image, mask, patch_size):
-        width, height = image.size
-        crop_width, crop_height = patch_size
+    def forward(self, img, label = None):
+        width, height = img.size
+        crop_width, crop_height = self.patch_size
         left = (width - crop_width) // 2
         upper = (height - crop_height) // 2
         right = left + crop_width
         lower = upper + crop_height
-        return image.crop((left, upper, right, lower)), mask.crop((left, upper, right, lower))
+        return img.crop((left, upper, right, lower)), label.crop((left, upper, right, lower)) if label is not None else img.crop((left, upper, right, lower))
+
+class MyRandomCrop(torch.nn.Module):
+    def __init__(self, patch_size, crop_number=2):
+        super(MyRandomCrop, self).__init__()
+        self.patch_size = patch_size
+        self.crop_number = crop_number
+
+    def forward(self, img, label = None):
+        width, height = img.size
+        crop_width, crop_height = self.patch_size
+        crops = []
+        for _ in range(self.crop_number):
+            left = torch.randint(0, width - crop_width, (1,)).item()
+            upper = torch.randint(0, height - crop_height, (1,)).item()
+            right = left + crop_width
+            lower = upper + crop_height
+            cropped_img = img.crop((left, upper, right, lower))
+
+            if label is not None:
+                cropped_label = label.crop((left, upper, right, lower))
+                crops.append((cropped_img, cropped_label))
+                continue
+
+            crops.append(cropped_img)
+        return crops
+
+class MyRandomCutout(torch.nn.Module):
+    def __init__(self, num_holes=10, max_h_size=40, max_w_size=40, fill_value=0):
+        super(MyRandomCutout, self).__init__()
+        self.num_holes = num_holes
+        self.max_h_size = max_h_size
+        self.max_w_size = max_w_size
+        self.fill_value = fill_value
+
+    def forward(self, img, label=None):
+        img_tensor = v2.PILToTensor()(img)
+        label_tensor = v2.PILToTensor()(label) if label is not None else img_tensor.clone()
+        for _ in range(self.num_holes):
+            y = torch.randint(0, img_tensor.shape[1] - self.max_h_size, (1,)).item()
+            x = torch.randint(0, img_tensor.shape[2] - self.max_w_size, (1,)).item()
+            img_tensor[:, y:y + self.max_h_size, x:x + self.max_w_size] = self.fill_value
+            label_tensor[:, y:y + self.max_h_size, x:x + self.max_w_size] = self.fill_value
+        return Image.fromarray(img_tensor.numpy()), Image.fromarray(label_tensor.numpy()) if label is not None else Image.fromarray(img_tensor.numpy())
+
+class MyRandomRescale(torch.nn.Module):
+    def __init__(self, scale_range=(0.5, 1.5)):
+        super().__init__()
+        self.scale_range = scale_range
+
+    def forward(self, img, label = None):
+
+        assert label is not None, "Label must be provided for rescaling"
+
+        original_width, original_height = img.size
+        scale_factor = torch.empty(1).uniform_(*self.scale_range).item()
+        scaled_width = int(original_width * scale_factor)
+        scaled_height = int(original_height * scale_factor)
+
+        img = img.resize((scaled_width, scaled_height), Image.BILINEAR)
+        label = label.resize((scaled_width, scaled_height), Image.NEAREST)
+
+        if scale_factor > 1.0:  # Randomly crop back to original size
+            left = torch.randint(0, scaled_width - original_width, (1,)).item()
+            upper = torch.randint(0, scaled_height - original_height, (1,)).item()
+            img = img.crop((left, upper, left + original_width, upper + original_height))
+            label = label.crop((left, upper, left + original_width, upper + original_height))
+        elif scale_factor < 1.0:  # Mirror and extend to original size
+            delta_width = original_width - scaled_width
+            delta_height = original_height - scaled_height
+
+            pad_left = delta_width // 2
+            pad_right = delta_width - pad_left
+            pad_top = delta_height // 2
+            pad_bottom = delta_height - pad_top
+
+            img = pad(img, (pad_left, pad_top, pad_right, pad_bottom), padding_mode="reflect")
+            label = pad(label, (pad_left, pad_top, pad_right, pad_bottom), padding_mode="reflect")
+
+        return img, label
+
+class MyRandomShift(torch.nn.Module):
+    def __init__(self):
+        super(MyRandomShift, self).__init__()
+
+    def forward(self, img, label = None):
+        original_width, original_height = img.size
+
+        # Randomly select shift amounts
+        shift_x = torch.randint(-original_width // 4, original_width // 4, (1,)).item()
+        shift_y = torch.randint(-original_height // 4, original_height // 4, (1,)).item()
+
+        # Shift the image and mask
+        img = affine(img, angle=0, translate=(shift_x, shift_y), scale=1, shear=(0, 0), interpolation =InterpolationMode.BILINEAR, fill=None)
+
+        if label is not None:
+            label = affine(label, angle=0, translate=(shift_x, shift_y), scale=1, shear=(0, 0), interpolation =InterpolationMode.NEAREST, fill=None)
+
+        # Mirror padding to restore original size
+        img = pad(img, (-min(shift_x, 0), -min(shift_y, 0), max(shift_x, 0), max(shift_y, 0)), padding_mode="reflect")
+
+        if label is not None:
+            label = pad(label, (-min(shift_x, 0), -min(shift_y, 0), max(shift_x, 0), max(shift_y, 0)), padding_mode="reflect")
+
+        # Crop back to original size
+        img = img.crop((0, 0, original_width, original_height))
+
+        if label is not None:
+            label = label.crop((0, 0, original_width, original_height))
+
+        return img, label if label is not None else img
+
+class MyRandomRotate(torch.nn.Module):
+    def __init__(self, angle_range=(-30, 30)):
+        super(MyRandomRotate, self).__init__()
+        self.angle_range = angle_range
+
+    def forward(self, img, label=None):
+        original_width, original_height = img.size
+
+        # Randomly select an angle within the specified range
+        angle = torch.empty(1).uniform_(*self.angle_range).item()
+
+        # Rotate the image and label
+        img = rotate(img, angle=angle, interpolation=InterpolationMode.BILINEAR, expand=True)
+        if label is not None:
+            label = rotate(label, angle=angle, interpolation=InterpolationMode.NEAREST, expand=True)
+
+        # Calculate padding needed to restore original size
+        pad_left = (img.width - original_width) // 2
+        pad_right = img.width - original_width - pad_left
+        pad_top = (img.height - original_height) // 2
+        pad_bottom = img.height - original_height - pad_top
+
+        # Mirror padding to restore original size
+        img = pad(img, (-pad_left, -pad_top, -pad_right, -pad_bottom), padding_mode="reflect")
+        if label is not None:
+            label = pad(label, (-pad_left, -pad_top, -pad_right, -pad_bottom), padding_mode="reflect")
+
+        # Crop back to original size
+        img = img.crop((0, 0, original_width, original_height))
+        if label is not None:
+            label = label.crop((0, 0, original_width, original_height))
+
+        return img, label if label is not None else img
+
+def unet_augmentation_train(patch_size, rotate_angle=180, noise_mean=0, noise_cov=0.02):
+        return v2.Compose([
+            v2.Resize(patch_size, interpolation=InterpolationMode.BILINEAR),
+            v2.RandomEqualize(p = 1),
+            MyGammaTransform(c = 1, gamma = 0.5),
+            MyLinearTransform(k = 0.4, b = 0.2),
+            # v2.LinearTransformation(),
+            # MyHistogramEqualization(),
+            v2.RandomRotation(degrees=rotate_angle, interpolation=InterpolationMode.BILINEAR),
+            v2.PILToTensor(),
+            v2.ToDtype(torch.float32, scale=True),
+            v2.GaussianNoise(mean=noise_mean, sigma=noise_cov),
+            v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+
+def unet_augmentation_valid(patch_size):
+    return v2.Compose([
+        v2.Resize(patch_size, interpolation=InterpolationMode.BILINEAR),
+        v2.PILToTensor(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+def reshdc_augmentation_train(patch_size, rotate_angle=(1, 3), crop_num=2, num_holes=10, gauss_mean=0.2, gauss_sigma=0.3):
+    return v2.Compose([
+        v2.RandomRotation(degrees=rotate_angle),
+        MyRandomRescale(scale_range=(0.5, 1.5)),
+        MyRandomShift(),
+        MyRandomRotate(angle_range=(-30, 30)),
+        v2.RandomHorizontalFlip(),
+        # MyRandomCutout(num_holes=num_holes, max_h_size=40, max_w_size=40, fill_value=0),
+        # v2.RandomErasing(scale = (0.02, 0.1)),
+        v2.RandomCrop(patch_size),
+        v2.PILToTensor(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
+        v2.GaussianNoise(mean=gauss_mean, sigma=gauss_sigma),
+        # MyRandomCrop(patch_size, crop_num),
+        v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+def reshdc_augmentation_valid(patch_size):
+    return v2.Compose([
+        MyUniformCrop(patch_size),
+        v2.PILToTensor(),
+        v2.ToDtype(torch.float32, scale=True),
+        v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
 
 if __name__ == '__main__':
     config = {
@@ -199,19 +267,20 @@ if __name__ == '__main__':
         "data_dir": "../data/gdxray",
         "metadata": "../metadata",
         "subset": "train",
-        "image_size": (224, 224),
+        "image_size": (320, 640),
     }
 
-    # transform = torch_train_transform(size=config["image_size"])
-    # transform = UNetAugmentation(patch_size=config["image_size"], training=True)
-    transform = CustomAugmentation()
+    # transform = unet_augmentation_train(config["image_size"])
+    transform = reshdc_augmentation_train(config["image_size"])
 
     dataset = utils.GDXrayDataset(config, labels=True, transform=transform)
 
-    img, lbl = dataset[0]
+    # Crop the image to a fixed size and visualize the results
 
-    # utils.visualize_samples(dataset, 5)
-    utils.visualize_augmentations(dataset, 6, samples=4, cols=2)
+    utils.visualize_samples(dataset, 5)
+    # utils.visualize_augmentations(dataset, 6, samples=10, cols=5)
+
+    # print(img.min(), img.max(), img.shape)
 
     # dataloader = torch.utils.data.DataLoader(dataset, batch_size=8, shuffle=True)
 
