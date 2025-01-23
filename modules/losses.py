@@ -124,6 +124,22 @@ def dice_loss(input: torch.Tensor, target: torch.Tensor, multiclass: bool = Fals
     fn = multiclass_dice_coeff if multiclass else dice_coeff
     return 1 - fn(input, target, reduce_batch_first=True)
 
+class ImprovedCE(nn.Module):
+    def __init__(self, weight=None, size_average=True):
+        super(ImprovedCE, self).__init__()
+        self.weight = weight
+
+    def forward(self, input, target):
+        input = input.view(-1)
+        target = target.view(-1)
+
+        if self.weight is not None:
+            assert len(self.weight) == 2
+
+            loss = self.weight[1] * (target * torch.log(input)) + self.weight[0] * ((1 - target) * torch.log(1 - input))
+
+        return torch.neg(loss.sum())
+
 if __name__ == "__main__":
 
     # Example prediction tensor for 2 classes (background and defect)
