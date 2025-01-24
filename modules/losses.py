@@ -6,6 +6,29 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+def dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+    # Average of Dice coefficient for all batches, or for a single mask
+    assert input.size() == target.size()
+    assert input.dim() == 3 or not reduce_batch_first
+
+    sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
+
+    inter = 2 * (input * target).sum(dim=sum_dim)
+    sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
+    sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
+
+    dice = (inter + epsilon) / (sets_sum + epsilon)
+    return dice.mean()
+
+def multiclass_dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+    # Average of Dice coefficient for all classes
+    return dice_coeff(input.flatten(0, 1), target.flatten(0, 1), reduce_batch_first, epsilon)
+
+def dice_loss(input: torch.Tensor, target: torch.Tensor, multiclass: bool = False):
+    # Dice loss (objective to minimize) between 0 and 1
+    fn = multiclass_dice_coeff if multiclass else dice_coeff
+    return 1 - fn(input, target, reduce_batch_first=True)
+
 
 def make_one_hot(input, num_classes):
     """Convert class index tensor to one hot encoding tensor.
@@ -23,7 +46,6 @@ def make_one_hot(input, num_classes):
     result = result.scatter_(1, input.cpu(), 1)
 
     return result
-
 
 class BinaryDiceLoss(nn.Module):
     """Dice loss of binary class
@@ -64,7 +86,6 @@ class BinaryDiceLoss(nn.Module):
         else:
             raise Exception('Unexpected reduction {}'.format(self.reduction))
 
-
 class DiceLoss(nn.Module):
     """Dice loss, need one hot encode input
     Args:
@@ -76,6 +97,7 @@ class DiceLoss(nn.Module):
     Return:
         same as BinaryDiceLoss
     """
+
     def __init__(self, weight=None, ignore_index=None, **kwargs):
         super(DiceLoss, self).__init__()
         self.kwargs = kwargs
@@ -99,46 +121,22 @@ class DiceLoss(nn.Module):
 
         return total_loss/target.shape[1]
 
-def dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
-    # Average of Dice coefficient for all batches, or for a single mask
-    assert input.size() == target.size()
-    assert input.dim() == 3 or not reduce_batch_first
-
-    sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
-
-    inter = 2 * (input * target).sum(dim=sum_dim)
-    sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
-    sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
-
-    dice = (inter + epsilon) / (sets_sum + epsilon)
-    return dice.mean()
-
-
-def multiclass_dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
-    # Average of Dice coefficient for all classes
-    return dice_coeff(input.flatten(0, 1), target.flatten(0, 1), reduce_batch_first, epsilon)
-
-
-def dice_loss(input: torch.Tensor, target: torch.Tensor, multiclass: bool = False):
-    # Dice loss (objective to minimize) between 0 and 1
-    fn = multiclass_dice_coeff if multiclass else dice_coeff
-    return 1 - fn(input, target, reduce_batch_first=True)
-
 class ImprovedCE(nn.Module):
-    def __init__(self, weight=None, size_average=True):
+    def __init__(self, weight=None):
         super(ImprovedCE, self).__init__()
         self.weight = weight
 
-    def forward(self, input, target):
-        input = input.view(-1)
-        target = target.view(-1)
+    def forward(self, prediction, truth):
+        prediction = torch.clamp(prediction, min=1e-7, max=1-1e-7)
+        prediction = prediction.view(-1) # Flatten
+        truth = truth.view(-1) # Flatten
 
         if self.weight is not None:
             assert len(self.weight) == 2
 
-            loss = self.weight[1] * (target * torch.log(input)) + self.weight[0] * ((1 - target) * torch.log(1 - input))
+            loss = - torch.sum(self.weight[0] * (truth * torch.log(prediction)) + self.weight[1] * ((1 - truth) * torch.log(1 - prediction)))
 
-        return torch.neg(loss.sum())
+        return loss / truth.size(0)
 
 if __name__ == "__main__":
 
@@ -146,14 +144,20 @@ if __name__ == "__main__":
     class DummySegmentationModel(nn.Module):
         def __init__(self):
             super(DummySegmentationModel, self).__init__()
-            self.conv1 = nn.Conv2d(3, 1, kernel_size=3, padding=1)
-        
+            self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
+            self.conv2 = nn.Conv2d(16, 1, kernel_size=3, padding=1)
+            self.relu = nn.ReLU()
+            self.sigmoid = nn.Sigmoid()
+
         def forward(self, x):
-            return torch.sigmoid(self.conv1(x))
+            x = self.relu(self.conv1(x))
+            x = self.sigmoid(self.conv2(x))
+            return x
 
     # Create model, loss function, and optimizer
     model = DummySegmentationModel()
-    criterion = dice_loss
+    # criterion = ImprovedCE((0.5, 0.5))
+    criterion = BinaryDiceLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # Dummy data
@@ -162,10 +166,10 @@ if __name__ == "__main__":
 
     # Training loop
     model.train()
-    for epoch in range(5):  # Train for 5 epochs
+    for epoch in range(100):  # Train for 5 epochs
         optimizer.zero_grad()
         outputs = model(inputs)
-        loss = criterion(outputs, targets)
+        loss = criterion(outputs.squeeze(), targets.squeeze())
         loss.backward()
         optimizer.step()
         print(f'Epoch {epoch+1}, Loss: {loss.item()}')
