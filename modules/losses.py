@@ -142,24 +142,30 @@ class ImprovedCE(nn.Module):
 
 if __name__ == "__main__":
 
-    # Example prediction tensor for 2 classes (background and defect)
-    predict = torch.randn(3, 2, 256, 256)  # Batch size of 3, 2 classes, 256x256 image
+    # Dummy binary segmentation model
+    class DummySegmentationModel(nn.Module):
+        def __init__(self):
+            super(DummySegmentationModel, self).__init__()
+            self.conv1 = nn.Conv2d(3, 1, kernel_size=3, padding=1)
+        
+        def forward(self, x):
+            return torch.sigmoid(self.conv1(x))
 
-    # Example target tensor for 2 classes (background and defect)
-    target = torch.randint(0, 2, (3, 1, 256, 256))  # Batch size of 3, 1 channel, 256x256 image
+    # Create model, loss function, and optimizer
+    model = DummySegmentationModel()
+    criterion = dice_loss
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    # # Calculate loss using custom dice_loss function
-    # loss = dice_loss(predict, target)
+    # Dummy data
+    inputs = torch.randn(2, 3, 256, 256)  # Batch of 2, 1 channel, 256x256 images
+    targets = torch.randint(0, 1, (2, 1, 256, 256)).float()  # Binary targets
 
-    # print("Dice Loss:", loss.item())
-
-    # Convert target to one-hot encoding
-    target = make_one_hot(target, num_classes=2)
-
-    # Initialize DiceLoss
-    dice_loss1 = DiceLoss()
-
-    # Calculate loss
-    loss = dice_loss1(predict, target)
-
-    print("Dice Loss:", loss.item())
+    # Training loop
+    model.train()
+    for epoch in range(5):  # Train for 5 epochs
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, targets)
+        loss.backward()
+        optimizer.step()
+        print(f'Epoch {epoch+1}, Loss: {loss.item()}')
