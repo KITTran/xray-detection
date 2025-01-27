@@ -215,12 +215,12 @@ class MyRandomRotate(torch.nn.Module):
 def unet_augmentation_train(patch_size, rotate_angle=180, noise_mean=0, noise_cov=0.02):
         return v2.Compose([
             v2.Resize(patch_size, interpolation=InterpolationMode.BILINEAR),
-            v2.RandomEqualize(p = 1),
-            MyGammaTransform(c = 1, gamma = 0.5),
-            MyLinearTransform(k = 0.4, b = 0.2),
-            # v2.LinearTransformation(),
             # MyHistogramEqualization(),
+            v2.RandomEqualize(p = 1),
             v2.RandomRotation(degrees=rotate_angle, interpolation=InterpolationMode.BILINEAR),
+            MyGammaTransform(c = 0.5, gamma = 0.3),
+            # MyLinearTransform(k = 0.2, b = 0.1),
+            # v2.LinearTransformation(),
             v2.PILToTensor(),
             v2.ToDtype(torch.float32, scale=True),
             v2.GaussianNoise(mean=noise_mean, sigma=noise_cov),
@@ -270,15 +270,15 @@ if __name__ == '__main__':
         "image_size": (320, 640),
     }
 
-    # transform = unet_augmentation_train(config["image_size"])
-    transform = reshdc_augmentation_train(config["image_size"])
+    transform = unet_augmentation_train(config["image_size"])
+    # transform = reshdc_augmentation_train(config["image_size"])
 
     dataset = utils.GDXrayDataset(config, labels=True, transform=transform)
 
     # Crop the image to a fixed size and visualize the results
 
-    utils.visualize_samples(dataset, 5)
-    # utils.visualize_augmentations(dataset, 6, samples=10, cols=5)
+    # utils.visualize_samples(dataset, 5)
+    utils.visualize_augmentations(dataset, 6, samples=10, cols=5)
 
     # print(img.min(), img.max(), img.shape)
 
