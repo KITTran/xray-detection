@@ -2,12 +2,12 @@
 import datetime
 import os
 import sys
+import tqdm
 
 import torch
-from torch import nn, optim
+import torchmetrics
+from torch import optim
 from torch.utils.data import DataLoader
-from torch.nn import functional as F
-import tqdm
 
 import matplotlib.pyplot as plt
 
@@ -29,10 +29,10 @@ config = {
         'subset': "train",
         'labels': True,
         'device': "cuda" if torch.cuda.is_available() else "cpu",
-        'image_size': (224, 224),
-        'learning_rate': 3e-4,
+        'image_size': (320, 640),
+        'learning_rate': 1e-4,
         'batch_size': 8,
-        'epochs': 10,
+        'epochs': 40000,
         'save_dir': os.path.join(PARENT_DIR, "logs/gdxray")
    }
 
@@ -55,12 +55,25 @@ valid_dataloader = DataLoader(dataset=valid_dataset,
                               shuffle=True)
 
 output_list = [32, 64, 128, 256, 512]
-num_classes = 2
+num_classes = 1
 model = models.UNet(num_classes, 3, output_list)
 model.to(config['device'])
 
 optimizer = optim.AdamW(model.parameters(), lr=config['learning_rate'])
 criterion = losses.ImprovedCE((0.3, 0.7))
+dc_loss = losses.BinaryDiceLoss()
+
+train_prc = torchmetrics.PrecisionRecallCurve()
+train_sen = torchmetrics.SensitivityAtSpecificity(0.5)
+train_spe = torchmetrics.Specificity('binary', 0.5)
+train_acc = torchmetrics.Accuracy('binary', 0.5)
+train_auc = torchmetrics.AUROC('binary')
+
+valid_prc = torchmetrics.PrecisionRecallCurve()
+valid_sen = torchmetrics.SensitivityAtSpecificity(0.5)
+valid_spe = torchmetrics.Specificity('binary', 0.5)
+valid_acc = torchmetrics.Accuracy('binary', 0.5)
+valid_auc = torchmetrics.AUROC('binary')
 
 torch.cuda.empty_cache()
 
@@ -77,14 +90,21 @@ for epoch in tqdm(range(config['epochs'])):
 
     for idx, img_mask in enumerate(tqdm(train_dataloader, position=0, leave=True)):
         img = img_mask[0].to(config['device'], dtype=torch.float32)
-        mask = img_mask[1].to(config['device'], dtype=torch.long)
+        mask = img_mask[1].to(config['device'], dtype=torch.float32)
 
         y_pred = model(img)
         optimizer.zero_grad()
 
-        dc = metrics.dice_coefficient(y_pred.squeeze(1), mask.float())
-        loss = criterion(y_pred.squeeze(1), mask.float())
-        loss += losses.dice_loss(F.sigmoid(y_pred.squeeze(1)), mask.float(), multiclass=False)
+        loss = criterion(y_pred.squeeze(), mask.squeeze())
+        loss += dc_loss(y_pred.squeeze(), mask.squeeze())
+
+        # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
+        prc = train_prc(y_pred.squeeze(), mask.squeeze())
+        sen = train_sen(y_pred.squeeze(), mask.squeeze())
+        spe = train_spe(y_pred.squeeze(), mask.squeeze())
+        acc = train_acc(y_pred.squeeze(), mask.squeeze())
+        auc = train_auc(y_pred.squeeze(), mask.squeeze())
+        dc = metrics.dice_coefficient(y_pred.squeeze(), mask.squeeze())
 
         train_running_loss += loss.item()
         train_running_dc += dc.item()
@@ -94,6 +114,11 @@ for epoch in tqdm(range(config['epochs'])):
 
     train_loss = train_running_loss / (idx + 1)
     train_dc = train_running_dc / (idx + 1)
+    train_prc = train_prc.compute()
+    train_sen = train_sen.compute()
+    train_spe = train_spe.compute()
+    train_acc = train_acc.compute()
+    train_auc = train_auc.compute()
 
     train_losses.append(train_loss)
     train_dcs.append(train_dc)
@@ -108,8 +133,15 @@ for epoch in tqdm(range(config['epochs'])):
             mask = img_mask[1].to(config['device'], dtype=torch.long)
 
             y_pred = model(img)
-            loss = criterion(y_pred.squeeze(1), mask)
-            loss += losses.dice_loss(F.sigmoid(y_pred.squeeze(1)), mask.float(), multiclass=False)
+            loss = criterion(y_pred.squeeze(1), mask.squeeze())
+            loss += dc_loss(y_pred.squeeze(), mask.squeeze())
+
+            # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
+            prc = valid_prc(y_pred.squeeze(), mask.squeeze())
+            sen = valid_sen(y_pred.squeeze(), mask.squeeze())
+            spe = valid_spe(y_pred.squeeze(), mask.squeeze())
+            acc = valid_acc(y_pred.squeeze(), mask.squeeze())
+            auc = valid_auc(y_pred.squeeze(), mask.squeeze())
             dc = metrics.dice_coefficient(y_pred.squeeze(1), mask.float())
 
             val_running_loss += loss.item()
@@ -117,17 +149,35 @@ for epoch in tqdm(range(config['epochs'])):
 
         val_loss = val_running_loss / (idx + 1)
         val_dc = val_running_dc / (idx + 1)
+    val_prc = valid_prc.compute()
+    val_sen = valid_sen.compute()
+    val_spe = valid_spe.compute()
+    val_acc = valid_acc.compute()
+    val_auc = valid_auc.compute()
 
     valid_losses.append(val_loss)
     valid_dcs.append(val_dc)
 
-    print("-" * 30)
-    print(f"Training Loss EPOCH {epoch + 1}: {train_loss:.4f}")
-    print(f"Training DICE EPOCH {epoch + 1}: {train_dc:.4f}")
-    print("\n")
-    print(f"Validation Loss EPOCH {epoch + 1}: {val_loss:.4f}")
-    print(f"Validation DICE EPOCH {epoch + 1}: {val_dc:.4f}")
-    print("-" * 30)
+    if epoch % 100 == 0:
+        print("-" * 30)
+        print(f"Training Loss EPOCH {epoch + 1}: {train_loss:.4f}")
+        utils.print_metrics(epoch + 1, train_prc, train_sen, train_spe, train_acc, train_auc, train_dc)
+        print("\n")
+        print(f"Validation Loss EPOCH {epoch + 1}: {val_loss:.4f}")
+        utils.print_metrics(epoch + 1, val_prc, val_sen, val_spe, val_acc, val_auc, val_dc)
+        print("-" * 30)
+
+    train_prc.reset()
+    train_sen.reset()
+    train_spe.reset()
+    train_acc.reset()
+    train_auc.reset()
+
+    valid_prc.reset()
+    valid_sen.reset()
+    valid_spe.reset()
+    valid_acc.reset()
+    valid_auc.reset()
 
 # Save model
 if not os.path.exists(config['save_dir']):
@@ -151,7 +201,6 @@ plt.grid()
 plt.tight_layout()
 
 plt.legend()
-
 
 plt.subplot(1, 2, 2)
 plt.plot(epochs_list, train_dcs, label='Training DICE')
