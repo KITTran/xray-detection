@@ -204,6 +204,11 @@ class GDXrayDataset(Dataset):
             # label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
             label = Image.open(label_path).convert('L') # read as grayscale
 
+            # Convert to binary mask
+            label = np.array(label)
+            label = np.where(label > 0, 1, 0)
+            label = Image.fromarray(label)
+
         if self.transform:
             image, label = self.transform(image, label) if self.labels else self.transform(image)
 
