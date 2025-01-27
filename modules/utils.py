@@ -208,7 +208,7 @@ class GDXrayDataset(Dataset):
             image, label = self.transform(image, label) if self.labels else self.transform(image)
 
         if self.labels:
-            return image, v2.ToTensor()(label)
+            return image, label
 
         return image
 
@@ -342,6 +342,11 @@ def save_metrics(save_dir, prefix, train_losses, train_dcs, valid_losses, valid_
     with open(os.path.join(save_dir, f"metrics_{prefix}.json"), 'w') as f:
         json.dump(metrics, f)
 
+# Print metrics as a table, inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
+def print_metrics(epoch, prc, sen, spe, acc, auc, dice):
+    print(f"Epoch {epoch}")
+    print(f"{'Precision':<15}{'Sensitivity':<15}{'Specificity':<15}{'Accuracy':<15}{'AUC':<15}{'Dice':<15}")
+    print(f"{prc:<15.4f}{sen:<15.4f}{spe:<15.4f}{acc:<15.4f}{auc:<15.4f}{dice:<15.4f}")
 
 # Path: datasets/gdxray
 if __name__ == "__main__":
@@ -352,17 +357,26 @@ if __name__ == "__main__":
         "subset": "train",
     }
 
-    transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5), v2.ToTensor()])
+    # transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5), v2.ToTensor()])
 
-    dataset = GDXrayDataset(config, labels=True, transform=transform)
+    # dataset = GDXrayDataset(config, labels=True, transform=transform)
 
-    loader = DataLoader(dataset, batch_size=2, shuffle=True)
+    # loader = DataLoader(dataset, batch_size=2, shuffle=True)
 
-    for i, (image, label) in enumerate(loader):
-        print(image.shape, label.shape)
-        if i == 0:
-            break
+    # for i, (image, label) in enumerate(loader):
+    #     print(image.shape, label.shape)
+    #     if i == 0:
+    #         break
 
     # visualize_samples(dataset, num_samples=3, labels=True)
 
     # visualize_augmentations(dataset, num_samples=3)
+
+    # print metrics
+    prc = 0.8
+    sen = 0.9
+    spe = 0.7
+    acc = 0.85
+    auc = 0.95
+    dice = 0.75
+    print_metrics(1, prc, sen, spe, acc, auc, dice)
