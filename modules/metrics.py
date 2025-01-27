@@ -1,5 +1,9 @@
 import torch
-from sklearn.metrics import roc_auc_score
+import torchmetrics
+from sklearn.metrics import roc_auc_score, precision_recall_curve
+
+import torch.nn as nn
+import torch.optim as optim
 
 def dice_coefficient(prediction, target, epsilon=1e-07):
     prediction_copy = prediction.clone()
@@ -65,18 +69,144 @@ def auc_score(predictions, targets):
     targets_np = targets.detach().cpu().numpy()
     return roc_auc_score(targets_np, predictions_np)
 
+class Metrics:
+    def __init__(self, threshold=0.5):
+        self.threshold = threshold
+
+    def compute_metrics(self, predictions, targets):
+        """
+        Compute binary classification metrics for semantic segmentation.
+
+        Args:
+            predictions: Predicted logits or probabilities (B, H, W).
+            targets: Ground truth binary masks (B, H, W).
+
+        Returns:
+            Dictionary of metrics (accuracy, sensitivity, specificity, auc).
+        """
+        # # Apply sigmoid
+        # predictions = torch.sigmoid(predictions)
+
+        # Flatten tensors
+        predictions = predictions.view(-1).detach().cpu().numpy()
+        targets = targets.view(-1).detach().cpu().numpy()
+
+        # Threshold to binary predictions
+        pred_labels = (predictions > self.threshold).astype(int)
+
+        # True positives, false positives, true negatives, false negatives
+        tp = (pred_labels * targets).sum()
+        fp = (pred_labels * (1 - targets)).sum()
+        tn = ((1 - pred_labels) * (1 - targets)).sum()
+        fn = ((1 - pred_labels) * targets).sum()
+
+        # Sensitivity (Recall)
+        sensitivity = tp / (tp + fn + 1e-7)
+
+        # Specificity
+        specificity = tn / (tn + fp + 1e-7)
+
+        # Accuracy
+        accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-7)
+
+        # AUC Score
+        try:
+            auc = roc_auc_score(targets, predictions)
+        except ValueError:
+            auc = 0.0  # Handle cases where AUC cannot be computed
+
+        # Precision-Recall Curve
+        precision, recall, _ = precision_recall_curve(targets, predictions)
+
+        metrics = {
+            'accuracy': accuracy,
+            'sensitivity': sensitivity,
+            'specificity': specificity,
+            'auc': auc,
+            'precision': precision,
+            'recall': recall,
+        }
+        return metrics
+
 if __name__ == "__main__":
-    # Example Usage
-    predictions = torch.tensor([0.1, 0.4, 0.35, 0.8], requires_grad=False)
-    targets = torch.tensor([0, 0, 1, 1])
+    # Define a simple binary semantic segmentation model
+    class SimpleSegmentationModel(nn.Module):
+        def __init__(self):
+            super(SimpleSegmentationModel, self).__init__()
+            self.encoder = nn.Sequential(
+                nn.Conv2d(1, 16, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2),
+                nn.Conv2d(16, 32, kernel_size=3, padding=1),
+                nn.ReLU(),
+                nn.MaxPool2d(kernel_size=2, stride=2)
+            )
+            self.decoder = nn.Sequential(
+                nn.ConvTranspose2d(32, 16, kernel_size=2, stride=2),
+                nn.ReLU(),
+                nn.ConvTranspose2d(16, 1, kernel_size=2, stride=2),
+                nn.Sigmoid()
+            )
 
-    # Compute metrics
-    sens = sensitivity(predictions, targets)
-    spec = specificity(predictions, targets)
-    auc = auc_score(predictions, targets)
-    dice  = dice_coefficient(predictions, targets)
+        def forward(self, x):
+            x = self.encoder(x)
+            x = self.decoder(x)
+            return x
 
-    print(f"Sensitivity: {sens}")
-    print(f"Specificity: {spec}")
-    print(f"AUC: {auc}")
-    print(f"Dice Coefficient: {dice}")
+    # Create model, define loss function and optimizer
+    model = SimpleSegmentationModel()
+    criterion = nn.BCELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+    # Generate dummy data
+    input_tensor = torch.randn(8, 1, 128, 128)
+    target_tensor = torch.randint(0, 1, (8, 1, 128, 128))
+
+    # prc = torchmetrics.PrecisionRecallCurve('binary', 5)
+    # sen = torchmetrics.SensitivityAtSpecificity('binary', 0.5)
+    # spe = torchmetrics.Specificity('binary', 0.5)
+    # acc = torchmetrics.Accuracy('binary', 0.5)
+    # auc = torchmetrics.AUROC('binary')
+
+    metrics_calculator = Metrics(threshold=0.5)
+
+    # Training loop
+    num_epochs = 5
+    for epoch in range(num_epochs):
+        model.train()
+        optimizer.zero_grad()
+
+        # Forward pass
+        predictions = model(input_tensor)
+        loss = criterion(predictions, target_tensor.float())
+
+        # Backward pass and optimization
+        loss.backward()
+        optimizer.step()
+
+        # Calculate metrics
+        # prc = prc(predictions, target_tensor)
+        # sen = sen(predictions, target_tensor)
+        # spe = spe(predictions, target_tensor)
+        # acc = acc(predictions, target_tensor)
+        # auc = auc(predictions, target_tensor)
+
+        dice = dice_coefficient(predictions, target_tensor)
+        metrics = metrics_calculator.compute_metrics(predictions, target_tensor)
+
+        print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}")
+        print(f"Dice Coefficient: {dice}")
+        print(f"Precision-Recall Curve: {metrics['precision']}, {metrics['recall']}")
+        print(f"Sensitivity: {metrics['sensitivity']}")
+        print(f"Specificity: {metrics['specificity']}")
+        print(f"Accuracy: {metrics['accuracy']}")
+        print(f"AUC Score: {metrics['auc']}")
+        print('-' * 50)
+
+    # Viualize precision-recall curve
+    import matplotlib.pyplot as plt
+    plt.plot(metrics['recall'], metrics['precision'])
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title('Precision-Recall Curve')
+    plt.show()
