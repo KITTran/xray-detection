@@ -477,24 +477,24 @@ class UNetEncoder(nn.Module):
     def __init__(self, input_channels, output_list):
         super(UNetEncoder, self).__init__()
 
-        self.conv1 = ConvBNReLU(input_channels, output_list[0], kernel_size=3, stride=1)
-        self.conv2 = ConvBNReLU(output_list[0], output_list[0], kernel_size=3, stride=1)
+        self.conv1 = ConvBNReLU(input_channels, output_list[0], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv2 = ConvBNReLU(output_list[0], output_list[0], kernel_size=3, stride=1, padding=1, dilation=1)
         self.pool1 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.conv3 = ConvBNReLU(output_list[0], output_list[1], kernel_size=3, stride=1)
-        self.conv4 = ConvBNReLU(output_list[1], output_list[1], kernel_size=3, stride=1)
+        self.conv3 = ConvBNReLU(output_list[0], output_list[1], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv4 = ConvBNReLU(output_list[1], output_list[1], kernel_size=3, stride=1, padding=1, dilation=1)
         self.pool2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.conv5 = ConvBNReLU(output_list[1], output_list[2], kernel_size=3, stride=1)
-        self.conv6 = ConvBNReLU(output_list[2], output_list[2], kernel_size=3, stride=1)
+        self.conv5 = ConvBNReLU(output_list[1], output_list[2], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv6 = ConvBNReLU(output_list[2], output_list[2], kernel_size=3, stride=1, padding=1, dilation=1)
         self.pool3 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.conv7 = ConvBNReLU(output_list[2], output_list[3], kernel_size=3, stride=1)
-        self.conv8 = ConvBNReLU(output_list[3], output_list[3], kernel_size=3, stride=1)
+        self.conv7 = ConvBNReLU(output_list[2], output_list[3], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv8 = ConvBNReLU(output_list[3], output_list[3], kernel_size=3, stride=1, padding=1, dilation=1)
         self.pool4 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.conv9 = ConvBNReLU(output_list[3], output_list[4], kernel_size=3, stride=1)
-        self.conv10 = ConvBNReLU(output_list[4], output_list[4], kernel_size=3, stride=1)
+        self.conv9 = ConvBNReLU(output_list[3], output_list[4], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv10 = ConvBNReLU(output_list[4], output_list[4], kernel_size=3, stride=1, padding=1, dilation=1)
         self.pool5 = nn.MaxPool2d(kernel_size=2, stride=2)
 
     def __call__(self, inputs):
@@ -521,24 +521,24 @@ class UNetEncoder(nn.Module):
         return x1, x2, x3, x4, x5, x6
 
 class UNetDecoder(nn.Module):
-    def __init__(self, output_list):
+    def __init__(self, output_list, num_classes):
         super(UNetDecoder, self).__init__()
 
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
-        self.conv11 = ConvBNReLU(output_list[4]*2, output_list[3], kernel_size=3, stride=1)
-        self.conv12 = ConvBNReLU(output_list[3], output_list[3], kernel_size=3, stride=1)
+        self.conv11 = ConvBNReLU(output_list[4]*2, output_list[3], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv12 = ConvBNReLU(output_list[3], output_list[3], kernel_size=3, stride=1, padding=1, dilation=1)
 
-        self.conv13 = ConvBNReLU(output_list[3]*3, output_list[2], kernel_size=3, stride=1)
-        self.conv14 = ConvBNReLU(output_list[2], output_list[2], kernel_size=3, stride=1)
+        self.conv13 = ConvBNReLU(output_list[3]*2 + output_list[4], output_list[2], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv14 = ConvBNReLU(output_list[2], output_list[2], kernel_size=3, stride=1, padding=1, dilation=1)
 
-        self.conv15 = ConvBNReLU(output_list[2]*3, output_list[1], kernel_size=3, stride=1)
-        self.conv16 = ConvBNReLU(output_list[1], output_list[1], kernel_size=3, stride=1)
+        self.conv15 = ConvBNReLU(output_list[2]*2 + output_list[3], output_list[1], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv16 = ConvBNReLU(output_list[1], output_list[1], kernel_size=3, stride=1, padding=1, dilation=1)
 
-        self.conv17 = ConvBNReLU(output_list[1]*3, output_list[0], kernel_size=3, stride=1)
-        self.conv18 = ConvBNReLU(output_list[0], output_list[0], kernel_size=3, stride=1)
+        self.conv17 = ConvBNReLU(output_list[1]*2 + output_list[2], output_list[0], kernel_size=3, stride=1, padding=1, dilation=1)
+        self.conv18 = ConvBNReLU(output_list[0], output_list[0], kernel_size=3, stride=1, padding=1, dilation=1)
 
-        self.conv19 = ConvBNReLU(output_list[0]*3, 1, kernel_size=3, stride=1, use_relu=False)
+        self.conv19 = ConvBNReLU(output_list[0]*2 + output_list[1], num_classes, kernel_size=3, stride=1, padding=1, dilation=1, use_relu=False)
         self.sigmoid = nn.Sigmoid()
 
     def __call__(self, x1, x2, x3, x4, x5, x6):
@@ -581,7 +581,7 @@ class UNet(nn.Module):
         self.output_list = output_list
 
         self.encoder = UNetEncoder(input_channels, output_list)
-        self.decoder = UNetDecoder(output_list)
+        self.decoder = UNetDecoder(output_list, num_classes)
 
     def forward(self, x):
         x1, x2, x3, x4, x5, x6 = self.encoder(x)
@@ -590,19 +590,20 @@ class UNet(nn.Module):
 
 # Example usage
 if __name__ == '__main__':
-    input_tensor = torch.randn(1, 3, 320, 320)
-    output_list = [64, 128, 256, 512]
+    input_tensor = torch.randn(1, 3, 320, 640)
+    output_list = [32, 64, 128, 256, 512]
     num_parallel = 2
     num_classes = 2
     upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
 
-    model = WResHDC_FF(num_classes, input_tensor.shape[1], output_list, num_parallel, upsampling_cfg)
+    # model = WResHDC_FF(num_classes, input_tensor.shape[1], output_list, num_parallel, upsampling_cfg)
     # model = DCIM(output_list, num_parallel)
-    # output = model(input_tensor)
+    model = UNet(num_classes, input_tensor.shape[1], output_list)
+    output = model(input_tensor)
 
     # print("Output shape:", output.shape)
     # print("Output shape:", [o.shape for o in output])
 
     # print model summary
-    model_info = torchinfo.summary(model, input_size=(1, 3, 320, 320))
+    model_info = torchinfo.summary(model, input_size=(1, 3, 320, 640))
     print(model_info)
