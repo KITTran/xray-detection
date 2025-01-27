@@ -90,13 +90,13 @@ for epoch in tqdm(range(config['epochs'])):
 
     for idx, img_mask in enumerate(tqdm(train_dataloader, position=0, leave=True)):
         img = img_mask[0].to(config['device'], dtype=torch.float32)
-        mask = img_mask[1].to(config['device'], dtype=torch.float32)
+        mask = img_mask[1].to(config['device'], dtype=torch.long)
 
         y_pred = model(img)
         optimizer.zero_grad()
 
-        loss = criterion(y_pred.squeeze(), mask.squeeze())
-        loss += dc_loss(y_pred.squeeze(), mask.squeeze())
+        loss = criterion(y_pred.squeeze(), mask.float().squeeze())
+        loss += dc_loss(y_pred.squeeze(), mask.float().squeeze())
 
         # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
         prc = train_prc(y_pred.squeeze(), mask.squeeze())
@@ -133,8 +133,8 @@ for epoch in tqdm(range(config['epochs'])):
             mask = img_mask[1].to(config['device'], dtype=torch.long)
 
             y_pred = model(img)
-            loss = criterion(y_pred.squeeze(1), mask.squeeze())
-            loss += dc_loss(y_pred.squeeze(), mask.squeeze())
+            loss = criterion(y_pred.squeeze(1), mask.float().squeeze())
+            loss += dc_loss(y_pred.squeeze(), mask.float().squeeze())
 
             # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
             prc = valid_prc(y_pred.squeeze(), mask.squeeze())
