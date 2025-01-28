@@ -138,6 +138,25 @@ class ImprovedCE(nn.Module):
 
         return loss / truth.size(0)
 
+def jaccard_distance_loss(y_true, y_pred, smooth=100):
+    """
+    Jaccard = (|X & Y|)/ (|X|+ |Y| - |X & Y|)
+            = sum(|A*B|)/(sum(|A|)+sum(|B|)-sum(|A*B|))
+
+    The jaccard distance loss is usefull for unbalanced datasets. This has been
+    shifted so it converges on 0 and is smoothed to avoid exploding or disapearing
+    gradient.
+
+    Ref: https://en.wikipedia.org/wiki/Jaccard_index
+
+    @url: https://gist.github.com/wassname/17cbfe0b68148d129a3ddaa227696496
+    @author: wassname
+    """
+    intersection= (y_true * y_pred).abs().sum(dim=-1)
+    sum_ = torch.sum(y_true.abs() + y_pred.abs(), dim=-1)
+    jac = (intersection + smooth) / (sum_ - intersection + smooth)
+    return (1 - jac) * smooth
+
 if __name__ == "__main__":
 
     # Dummy binary segmentation model
