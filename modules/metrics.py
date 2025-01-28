@@ -5,11 +5,14 @@ from sklearn.metrics import roc_auc_score, precision_recall_curve
 import torch.nn as nn
 import torch.optim as optim
 
-def dice_coefficient(prediction, target, epsilon=1e-07):
+def dice_coefficient(prediction, target, epsilon=1e-07, threshold=0.7):
+    # Convert from numpy to tensor
+    assert isinstance(prediction, torch.Tensor), "Prediction must be a PyTorch tensor."
+
     prediction_copy = prediction.clone()
 
-    prediction_copy[prediction_copy < 0] = 0
-    prediction_copy[prediction_copy > 0] = 1
+    prediction_copy[prediction_copy < threshold] = 0
+    prediction_copy[prediction_copy > threshold] = 1
 
     intersection = abs(torch.sum(prediction_copy * target))
     union = abs(torch.sum(prediction_copy) + torch.sum(target))
@@ -70,7 +73,7 @@ def auc_score(predictions, targets):
     return roc_auc_score(targets_np, predictions_np)
 
 class Metrics:
-    def __init__(self, threshold=0.5):
+    def __init__(self, threshold=0.7):
         self.threshold = threshold
 
     def compute_metrics(self, predictions, targets):
@@ -82,7 +85,7 @@ class Metrics:
             targets: Ground truth binary masks (B, H, W).
 
         Returns:
-            Dictionary of metrics (accuracy, sensitivity, specificity, auc).
+            Dictionary of metrics (accuracy, sensitivity, specificity, auc, dice).
         """
         # # Apply sigmoid
         # predictions = torch.sigmoid(predictions)
@@ -116,7 +119,9 @@ class Metrics:
             auc = 0.0  # Handle cases where AUC cannot be computed
 
         # Precision-Recall Curve
-        precision, recall, _ = precision_recall_curve(targets, predictions)
+        precision, recall, _ = precision_recall_curve(targets, predictions, pos_label=1)
+
+        dice = dice_coefficient(predictions, targets)
 
         metrics = {
             'accuracy': accuracy,
@@ -125,6 +130,7 @@ class Metrics:
             'auc': auc,
             'precision': precision,
             'recall': recall,
+            'dice': dice
         }
         return metrics
 
@@ -160,15 +166,9 @@ if __name__ == "__main__":
 
     # Generate dummy data
     input_tensor = torch.randn(8, 1, 128, 128)
-    target_tensor = torch.randint(0, 1, (8, 1, 128, 128))
+    target_tensor = torch.randint(0, 2, (8, 1, 128, 128))
 
-    # prc = torchmetrics.PrecisionRecallCurve('binary', 5)
-    # sen = torchmetrics.SensitivityAtSpecificity('binary', 0.5)
-    # spe = torchmetrics.Specificity('binary', 0.5)
-    # acc = torchmetrics.Accuracy('binary', 0.5)
-    # auc = torchmetrics.AUROC('binary')
-
-    metrics_calculator = Metrics(threshold=0.5)
+    metrics_calculator = Metrics(threshold=0.7)
 
     # Training loop
     num_epochs = 5
@@ -203,8 +203,17 @@ if __name__ == "__main__":
         print(f"AUC Score: {metrics['auc']}")
         print('-' * 50)
 
-    # Viualize precision-recall curve
+    # Visualize prediction and target
     import matplotlib.pyplot as plt
+    plt.imshow(predictions[0].squeeze().detach().cpu().numpy(), cmap='gray')
+    plt.title('Prediction')
+    plt.show()
+
+    plt.imshow(target_tensor[0].squeeze().detach().cpu().numpy(), cmap='gray')
+    plt.title('Target')
+    plt.show()
+
+    # Viualize precision-recall curve
     plt.plot(metrics['recall'], metrics['precision'])
     plt.xlabel('Recall')
     plt.ylabel('Precision')
