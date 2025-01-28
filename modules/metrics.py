@@ -90,6 +90,8 @@ class Metrics:
         # # Apply sigmoid
         # predictions = torch.sigmoid(predictions)
 
+        dice = dice_coefficient(predictions.squeeze(), targets.squeeze())
+
         # Flatten tensors
         predictions = predictions.view(-1).detach().cpu().numpy()
         targets = targets.view(-1).detach().cpu().numpy()
@@ -112,6 +114,9 @@ class Metrics:
         # Accuracy
         accuracy = (tp + tn) / (tp + tn + fp + fn + 1e-7)
 
+        # Jaccard Index
+        jaccard = tp / (tp + fp + fn + 1e-7)
+
         # AUC Score
         try:
             auc = roc_auc_score(targets, predictions)
@@ -121,7 +126,6 @@ class Metrics:
         # Precision-Recall Curve
         precision, recall, _ = precision_recall_curve(targets, predictions, pos_label=1)
 
-        dice = dice_coefficient(predictions, targets)
 
         metrics = {
             'accuracy': accuracy,
@@ -130,7 +134,8 @@ class Metrics:
             'auc': auc,
             'precision': precision,
             'recall': recall,
-            'dice': dice
+            'dice': dice,
+            'jaccard': jaccard
         }
         return metrics
 
