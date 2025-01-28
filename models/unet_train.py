@@ -63,16 +63,17 @@ optimizer = optim.AdamW(model.parameters(), lr=config['learning_rate'])
 criterion = losses.ImprovedCE((0.3, 0.7))
 dc_loss = losses.BinaryDiceLoss()
 
-train_prc = torchmetrics.PrecisionRecallCurve()
-train_sen = torchmetrics.SensitivityAtSpecificity(0.5)
-train_spe = torchmetrics.Specificity('binary', 0.5)
-train_acc = torchmetrics.Accuracy('binary', 0.5)
+# Metrics use torchmetrics
+train_prc = torchmetrics.PrecisionRecallCurve('binary', 0.7, num_classes=1)
+train_sen = torchmetrics.SensitivityAtSpecificity('binary', 0.7)
+train_spe = torchmetrics.Specificity('binary', 0.7)
+train_acc = torchmetrics.Accuracy('binary')
 train_auc = torchmetrics.AUROC('binary')
 
-valid_prc = torchmetrics.PrecisionRecallCurve()
-valid_sen = torchmetrics.SensitivityAtSpecificity(0.5)
-valid_spe = torchmetrics.Specificity('binary', 0.5)
-valid_acc = torchmetrics.Accuracy('binary', 0.5)
+valid_prc = torchmetrics.PrecisionRecallCurve('binary', 0.7, num_classes=1)
+valid_sen = torchmetrics.SensitivityAtSpecificity('binary', 0.7)
+valid_spe = torchmetrics.Specificity('binary', 0.7)
+valid_acc = torchmetrics.Accuracy('binary')
 valid_auc = torchmetrics.AUROC('binary')
 
 torch.cuda.empty_cache()
@@ -99,7 +100,7 @@ for epoch in tqdm(range(config['epochs'])):
         loss += dc_loss(y_pred.squeeze(), mask.float().squeeze())
 
         # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
-        prc = train_prc(y_pred.squeeze(), mask.squeeze())
+        prc, recall, _ = train_prc(y_pred.squeeze(), mask.squeeze())
         sen = train_sen(y_pred.squeeze(), mask.squeeze())
         spe = train_spe(y_pred.squeeze(), mask.squeeze())
         acc = train_acc(y_pred.squeeze(), mask.squeeze())
@@ -149,6 +150,7 @@ for epoch in tqdm(range(config['epochs'])):
 
         val_loss = val_running_loss / (idx + 1)
         val_dc = val_running_dc / (idx + 1)
+
     val_prc = valid_prc.compute()
     val_sen = valid_sen.compute()
     val_spe = valid_spe.compute()
@@ -189,6 +191,8 @@ torch.save(model.state_dict(), os.path.join(config['save_dir'], f"{config['name'
 utils.save_metrics(config['save_dir'], now, train_losses, train_dcs, valid_losses, valid_dcs)
 epochs_list = list(range(1, config['epochs'] + 1))
 
+
+# Plot training and validation metrics
 plt.figure(figsize=(12, 5))
 plt.subplot(1, 2, 1)
 plt.plot(epochs_list, train_losses, label='Training Loss')
@@ -214,3 +218,12 @@ plt.legend()
 
 plt.tight_layout()
 plt.show()
+
+# Visualize prediction and target
+train_prcs = train_prc.compute()
+fig, ax = train_prc.plot(train_prcs[-1])
+fig.set_title('Precision-Recall Curve')
+
+valid_prcs = valid_prc.compute()
+fig, ax = valid_prc.plot(valid_prcs[-1])
+fig.set_title('Precision-Recall Curve')
