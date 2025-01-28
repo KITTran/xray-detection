@@ -1,9 +1,8 @@
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 
 import utils
 import torch
-import cv2
 
 from PIL import Image
 from torchvision.transforms import v2
