@@ -1,7 +1,6 @@
 # %load_ext autoreload
 # %autoreload 2
 
-import utils
 import torch
 
 from PIL import Image
@@ -261,6 +260,9 @@ def reshdc_augmentation_valid(patch_size):
     ])
 
 if __name__ == '__main__':
+
+    import utils
+
     config = {
         "name": "gdxray",
         "data_dir": "../data/gdxray",
