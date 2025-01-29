@@ -274,7 +274,7 @@ class ConvBNReLU(nn.Module):
         return x
 
 class AdaptiveThresholdPrediction(nn.Module):
-    def __init__(self, in_channels=64, pool_size=(1, 1), num_classes=2):
+    def __init__(self, in_channels=64, pool_size=(1, 1), num_classes=1, initial_threshold=0.5):
         """
         Adaptive Threshold Prediction Module.
         Args:
@@ -287,14 +287,23 @@ class AdaptiveThresholdPrediction(nn.Module):
         super(AdaptiveThresholdPrediction, self).__init__()
 
         # First path: Conv1x1 -> STAF
-        self.conv1x1_main = nn.Conv2d(in_channels, num_classes, kernel_size=1)
+        self.conv1x1_main = nn.Conv2d(in_channels, 64, kernel_size=1, stride=1, padding=0)
 
-        # Second path: Adaptive Max Pool -> Conv1x1 -> Threshold prediction
-        self.adaptive_pool = nn.AdaptiveMaxPool2d(output_size=pool_size)
-        self.conv1x1_thresh = nn.Conv2d(in_channels, num_classes, kernel_size=1)
+        # STAF branch
+        self.staf_branch = nn.Sequential(
+            nn.Conv2d(64, num_classes, kernel_size=3, stride=1, padding=1),
+            nn.Sigmoid()
+        )
+
+        # Second path: Adaptive Pooling -> Conv1x1 -> Sigmoid -> ATS
+        self.adaptive_pool = nn.AdaptiveAvgPool2d(output_size=pool_size)
+        self.ats_branch = nn.Sequential(
+            nn.Conv2d(in_channels, num_classes, kernel_size=1, stride=1, padding=0),
+            nn.Sigmoid()
+        )
 
         # Learnable scalar for threshold prediction
-        self.sigma = nn.Parameter(torch.tensor(1.0))  # Scale factor (learnable)
+        self.threshold = nn.Parameter(torch.tensor(initial_threshold, requires_grad=True))
 
     def forward(self, x):
         """
@@ -307,18 +316,20 @@ class AdaptiveThresholdPrediction(nn.Module):
         # First path
         main_output = self.conv1x1_main(x)  # Output: (B, 64, H, W)
 
-        # Second path for threshold prediction
-        pooled_output = self.adaptive_pool(x)  # Output: (B, C, 1, 1)
-        threshold = self.conv1x1_thresh(pooled_output)  # Output: (B, 64, 1, 1)
-        threshold = torch.sigmoid(threshold) * self.sigma  # Sigmoid to predict Thresh
+        # STAF branch
+        staf_output = self.staf_branch(main_output)  # Output: (B, num_classes, H, W)
 
-        # Broadcast threshold to match main_output shape
-        threshold = F.interpolate(threshold, size=main_output.shape[2:], mode='bilinear', align_corners=False)
+        # Second path
+        pooled = self.adaptive_pool(x)  # Output: (B, C, 1, 1)
+        ats_output = self.ats_branch(pooled)  # Output: (B, num_classes, 1, 1)
 
-        # Apply threshold (modulation or scaling)
-        output = main_output * threshold
+        # Adaptive thresholding
+        scaled_threshold = self.threshold * ats_output  # Output: (B, num_classes, 1, 1)
 
-        assert output.shape[1] == 2, f"Output shape: {output.shape}"
+        scaled_threshold = F.interpolate(scaled_threshold, size=main_output.shape[2:], mode='bilinear', align_corners=False)
+
+        # Thresholding
+        output = staf_output * scaled_threshold  # Output: (B, num_classes, H, W)
 
         return output
 
