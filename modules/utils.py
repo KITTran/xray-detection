@@ -3,6 +3,7 @@ import os
 import json
 import math
 import random
+import torch
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -204,15 +205,13 @@ class GDXrayDataset(Dataset):
             # label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
             label = Image.open(label_path).convert('L') # read as grayscale
 
-            # Convert to binary mask
-            label = np.array(label)
-            label = np.where(label > 0, 1, 0)
-            label = Image.fromarray(label)
-
         if self.transform:
             image, label = self.transform(image, label) if self.labels else self.transform(image)
 
         if self.labels:
+            # Convert to binary mask
+            label = np.array(label) / 255.0
+            label = np.where(label > 0.3, 1, 0)
             return image, label
 
         return image
@@ -348,13 +347,25 @@ def save_metrics(save_dir, prefix, train_losses, train_dcs, valid_losses, valid_
         json.dump(metrics, f)
 
 # Print metrics as a table, inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
-def print_metrics(epoch, prc, sen, spe, acc, auc, dice):
+def print_metrics(epoch, prc, rec, sen, spe, acc, auc, dice):
+
+    # Convert to numpy array
+    prc = prc.cpu()
+    rec = rec.cpu()   
+    sen = sen.cpu()
+    spe = spe.cpu()
+    acc = acc.cpu()
+    auc = auc.cpu()
+    dice = torch.tensor(dice)
+
     print(f"Epoch {epoch}")
-    print(f"{'Precision':<15}{'Sensitivity':<15}{'Specificity':<15}{'Accuracy':<15}{'AUC':<15}{'Dice':<15}")
-    print(f"{prc:<15.4f}{sen:<15.4f}{spe:<15.4f}{acc:<15.4f}{auc:<15.4f}{dice:<15.4f}")
+    print(f"{'Precision':<15}{'Recall':<15}{'Sensitivity':<15}{'Specificity':<15}{'Accuracy':<15}{'AUC':<15}{'Dice':<15}")
+    # print(f"{prc.item():<15.4f}{rec.item():<15.4f}{sen.item():<15.4f}{spe.item():<15.4f}{acc.item():<15.4f}{auc.item():<15.4f}{dice.item():<15.4f}")
+    print(f'{prc}   {rec}    {sen}    {spe}    {acc}    {auc}    {dice}')
 
 # Path: datasets/gdxray
 if __name__ == "__main__":
+    import torch
     config = {
         "name": "gdxray",
         "data_dir": os.path.join(os.path.dirname(CURRENT_DIR), "data/gdxray"),
@@ -378,10 +389,11 @@ if __name__ == "__main__":
     # visualize_augmentations(dataset, num_samples=3)
 
     # print metrics
-    prc = 0.8
-    sen = 0.9
-    spe = 0.7
-    acc = 0.85
-    auc = 0.95
-    dice = 0.75
-    print_metrics(1, prc, sen, spe, acc, auc, dice)
+    prc = torch.tensor(0.8)
+    rec = torch.tensor(0.6)
+    sen = torch.tensor(0.9)
+    spe = torch.tensor(0.7)
+    acc = torch.tensor(0.85)
+    auc = torch.tensor(0.95)
+    dice = torch.tensor(0.75)
+    print_metrics(1, prc, rec,sen, spe, acc, auc, dice)
