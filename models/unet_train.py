@@ -1,8 +1,11 @@
+%load_ext autoreload
+%autoreload 2
+
 # Get time of execution
 import datetime
 import os
 import sys
-import tqdm
+from tqdm import tqdm
 
 import torch
 import torchmetrics
@@ -64,17 +67,17 @@ criterion = losses.ImprovedCE((0.3, 0.7))
 dc_loss = losses.BinaryDiceLoss()
 
 # Metrics use torchmetrics
-train_prc = torchmetrics.PrecisionRecallCurve('binary', 0.7, num_classes=1)
-train_sen = torchmetrics.SensitivityAtSpecificity('binary', 0.7)
-train_spe = torchmetrics.Specificity('binary', 0.7)
-train_acc = torchmetrics.Accuracy('binary')
-train_auc = torchmetrics.AUROC('binary')
+train_prcs = torchmetrics.PrecisionRecallCurve('binary', 2, num_classes=1).to(config['device'])
+train_sens = torchmetrics.SensitivityAtSpecificity('binary', 0.7).to(config['device'])
+train_spes = torchmetrics.Specificity('binary', 0.7).to(config['device'])
+train_accs = torchmetrics.Accuracy('binary').to(config['device'])
+train_aucs = torchmetrics.AUROC('binary').to(config['device'])
 
-valid_prc = torchmetrics.PrecisionRecallCurve('binary', 0.7, num_classes=1)
-valid_sen = torchmetrics.SensitivityAtSpecificity('binary', 0.7)
-valid_spe = torchmetrics.Specificity('binary', 0.7)
-valid_acc = torchmetrics.Accuracy('binary')
-valid_auc = torchmetrics.AUROC('binary')
+valid_prcs = torchmetrics.PrecisionRecallCurve('binary', 2, num_classes=1).to(config['device'])
+valid_sens = torchmetrics.SensitivityAtSpecificity('binary', 0.7).to(config['device'])
+valid_spes = torchmetrics.Specificity('binary', 0.7).to(config['device'])
+valid_accs = torchmetrics.Accuracy('binary').to(config['device'])
+valid_aucs = torchmetrics.AUROC('binary').to(config['device'])
 
 torch.cuda.empty_cache()
 
@@ -100,11 +103,11 @@ for epoch in tqdm(range(config['epochs'])):
         loss += dc_loss(y_pred.squeeze(), mask.float().squeeze())
 
         # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
-        prc, recall, _ = train_prc(y_pred.squeeze(), mask.squeeze())
-        sen = train_sen(y_pred.squeeze(), mask.squeeze())
-        spe = train_spe(y_pred.squeeze(), mask.squeeze())
-        acc = train_acc(y_pred.squeeze(), mask.squeeze())
-        auc = train_auc(y_pred.squeeze(), mask.squeeze())
+        prc, recall, _ = train_prcs(y_pred.squeeze(), mask.squeeze())
+        sen = train_sens(y_pred.squeeze(), mask.squeeze())
+        spe = train_spes(y_pred.squeeze(), mask.squeeze())
+        acc = train_accs(y_pred.squeeze(), mask.squeeze())
+        auc = train_aucs(y_pred.squeeze(), mask.squeeze())
         dc = metrics.dice_coefficient(y_pred.squeeze(), mask.squeeze())
 
         train_running_loss += loss.item()
@@ -115,11 +118,11 @@ for epoch in tqdm(range(config['epochs'])):
 
     train_loss = train_running_loss / (idx + 1)
     train_dc = train_running_dc / (idx + 1)
-    train_prc = train_prc.compute()
-    train_sen = train_sen.compute()
-    train_spe = train_spe.compute()
-    train_acc = train_acc.compute()
-    train_auc = train_auc.compute()
+    train_prc, train_recall, _ = train_prcs.compute()
+    train_sen, _ = train_sens.compute()
+    train_spe = train_spes.compute()
+    train_acc = train_accs.compute()
+    train_auc = train_aucs.compute()
 
     train_losses.append(train_loss)
     train_dcs.append(train_dc)
@@ -138,11 +141,11 @@ for epoch in tqdm(range(config['epochs'])):
             loss += dc_loss(y_pred.squeeze(), mask.float().squeeze())
 
             # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
-            prc = valid_prc(y_pred.squeeze(), mask.squeeze())
-            sen = valid_sen(y_pred.squeeze(), mask.squeeze())
-            spe = valid_spe(y_pred.squeeze(), mask.squeeze())
-            acc = valid_acc(y_pred.squeeze(), mask.squeeze())
-            auc = valid_auc(y_pred.squeeze(), mask.squeeze())
+            prc, recall, _ = valid_prcs(y_pred.squeeze(), mask.squeeze())
+            sen = valid_sens(y_pred.squeeze(), mask.squeeze())
+            spe = valid_spes(y_pred.squeeze(), mask.squeeze())
+            acc = valid_accs(y_pred.squeeze(), mask.squeeze())
+            auc = valid_aucs(y_pred.squeeze(), mask.squeeze())
             dc = metrics.dice_coefficient(y_pred.squeeze(1), mask.float())
 
             val_running_loss += loss.item()
@@ -151,35 +154,35 @@ for epoch in tqdm(range(config['epochs'])):
         val_loss = val_running_loss / (idx + 1)
         val_dc = val_running_dc / (idx + 1)
 
-    val_prc = valid_prc.compute()
-    val_sen = valid_sen.compute()
-    val_spe = valid_spe.compute()
-    val_acc = valid_acc.compute()
-    val_auc = valid_auc.compute()
+    val_prc, val_recall, _ = valid_prcs.compute()
+    val_sen, _ = valid_sens.compute()
+    val_spe = valid_spes.compute()
+    val_acc = valid_accs.compute()
+    val_auc = valid_aucs.compute()
 
     valid_losses.append(val_loss)
-    valid_dcs.append(val_dc)
+    valid_dcs.append(val_dc)    
 
     if epoch % 100 == 0:
         print("-" * 30)
         print(f"Training Loss EPOCH {epoch + 1}: {train_loss:.4f}")
-        utils.print_metrics(epoch + 1, train_prc, train_sen, train_spe, train_acc, train_auc, train_dc)
+        utils.print_metrics(epoch + 1, train_prc, train_recall, train_sen, train_spe, train_acc, train_auc, train_dc)
         print("\n")
         print(f"Validation Loss EPOCH {epoch + 1}: {val_loss:.4f}")
-        utils.print_metrics(epoch + 1, val_prc, val_sen, val_spe, val_acc, val_auc, val_dc)
+        utils.print_metrics(epoch + 1, val_prc, val_recall, val_sen, val_spe, val_acc, val_auc, val_dc)
         print("-" * 30)
 
-    train_prc.reset()
-    train_sen.reset()
-    train_spe.reset()
-    train_acc.reset()
-    train_auc.reset()
+    train_prcs.reset()
+    train_sens.reset()
+    train_spes.reset()
+    train_accs.reset()
+    train_aucs.reset()
 
-    valid_prc.reset()
-    valid_sen.reset()
-    valid_spe.reset()
-    valid_acc.reset()
-    valid_auc.reset()
+    valid_prcs.reset()
+    valid_sens.reset()
+    valid_spes.reset()
+    valid_accs.reset()
+    valid_aucs.reset()
 
 # Save model
 if not os.path.exists(config['save_dir']):
@@ -220,10 +223,10 @@ plt.tight_layout()
 plt.show()
 
 # Visualize prediction and target
-train_prcs = train_prc.compute()
-fig, ax = train_prc.plot(train_prcs[-1])
+train_prcs = train_prcs.compute()
+fig, ax = train_prcs.plot(train_prcs[-1])
 fig.set_title('Precision-Recall Curve')
 
-valid_prcs = valid_prc.compute()
-fig, ax = valid_prc.plot(valid_prcs[-1])
+valid_prcs = valid_prcs.compute()
+fig, ax = valid_prcs.plot(valid_prcs[-1])
 fig.set_title('Precision-Recall Curve')
