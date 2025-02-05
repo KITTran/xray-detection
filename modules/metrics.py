@@ -33,10 +33,16 @@ def sensitivity(predictions, targets, threshold=0.5):
     - Sensitivity: float.
     """
     # Binarize predictions based on threshold
-    preds = (predictions >= threshold).int()
-    true_positive = torch.sum((preds == 1) & (targets == 1)).float()
-    false_negative = torch.sum((preds == 0) & (targets == 1)).float()
-    return (true_positive / (true_positive + false_negative)).item()
+    assert isinstance(predictions, torch.Tensor), "Prediction must be a PyTorch tensor."
+
+    predictions[predictions < threshold] = 0
+    predictions[predictions > threshold] = 1
+
+    intersection = torch.sum(predictions * targets).float()
+    total_positive = torch.sum(targets).float()
+
+    return (intersection / (total_positive + 1e-7)).item()
+
 
 def specificity(predictions, targets, threshold=0.5):
     """
@@ -139,6 +145,59 @@ class Metrics:
         }
         return metrics
 
+class ResMetrics:
+    def __init__(self, threshold=0.7):
+        self.threshold = threshold
+
+    def compute_metrics(self, predictions, targets):
+        """
+        Compute binary classification metrics for semantic segmentation.
+
+        Args:
+            predictions: Predicted logits or probabilities (B, H, W).
+            targets: Ground truth binary masks (B, H, W).
+
+        Returns:
+            Dictionary of metrics (accuracy, sensitivity, specificity, auc, dice).
+        """
+        # # Apply sigmoid
+        # predictions = torch.sigmoid(predictions)
+
+        dice = dice_coefficient(predictions.squeeze(), targets.squeeze(), threshold=self.threshold)
+        sens = sensitivity(predictions.squeeze(), targets.squeeze(), self.threshold)
+
+        # Flatten tensors
+        predictions = predictions.view(-1).detach().cpu().numpy()
+        targets = targets.view(-1).detach().cpu().numpy()
+
+        # Threshold to binary predictions
+        pred_labels = (predictions > self.threshold).astype(int)
+
+        # True positives, false positives, true negatives, false negatives
+        tp = (pred_labels * targets).sum()
+        fp = (pred_labels * (1 - targets)).sum()
+        tn = ((1 - pred_labels) * (1 - targets)).sum()
+        fn = ((1 - pred_labels) * targets).sum()
+
+        # Jaccard Index
+        jaccard = tp / (tp + fp + fn + 1e-7)
+
+        # recall
+        recall = tp / (tp + fn + 1e-7)
+
+        # precision
+        precision = tp / (tp + fp + 1e-7)
+
+
+        metrics = {
+            'dice': dice,
+            'precision': precision,
+            'recall': recall,
+            'jaccard': jaccard,
+            'sensitivity': sens
+        }
+        return metrics
+
 if __name__ == "__main__":
     # Define a simple binary semantic segmentation model
     class SimpleSegmentationModel(nn.Module):
@@ -170,43 +229,53 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Generate dummy data
-    input_tensor = torch.randn(8, 1, 128, 128)
-    target_tensor = torch.randint(0, 2, (8, 1, 128, 128))
+    input_tensor = torch.randn(100, 1, 128, 128)
+    target_tensor = torch.randint(0, 2, (100, 1, 128, 128))
 
-    metrics_calculator = Metrics(threshold=0.7)
+    dataloader = torch.utils.data.DataLoader(list(zip(input_tensor, target_tensor)), batch_size=10)
 
+    metrics = ResMetrics(threshold=0.7)
+
+    torch.autograd.set_detect_anomaly(True)
     # Training loop
     num_epochs = 5
     for epoch in range(num_epochs):
         model.train()
-        optimizer.zero_grad()
+        train_metrics = {}
 
-        # Forward pass
-        predictions = model(input_tensor)
-        loss = criterion(predictions, target_tensor.float())
+        for inputs, targets in dataloader:
+            outputs = model(inputs)
+            optimizer.zero_grad()
+            loss = criterion(outputs, targets.float())
 
-        # Backward pass and optimization
-        loss.backward()
-        optimizer.step()
+            # calculate metrics
+            metrics = metrics.compute_metrics(outputs, targets)
+            try:
+                for key in train_metrics.keys():
+                    train_metrics[key] += metrics[key]
+            except:
+                train_metrics = metrics
 
-        # Calculate metrics
-        # prc = prc(predictions, target_tensor)
-        # sen = sen(predictions, target_tensor)
-        # spe = spe(predictions, target_tensor)
-        # acc = acc(predictions, target_tensor)
-        # auc = auc(predictions, target_tensor)
+            loss.backward()
+            optimizer.step()
 
-        dice = dice_coefficient(predictions, target_tensor)
-        metrics = metrics_calculator.compute_metrics(predictions, target_tensor)
+        # Average metrics
+        for key in train_metrics.keys():
+            train_metrics[key] /= len(dataloader)
 
         print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}")
-        print(f"Dice Coefficient: {dice}")
-        print(f"Precision-Recall Curve: {metrics['precision']}, {metrics['recall']}")
-        print(f"Sensitivity: {metrics['sensitivity']}")
-        print(f"Specificity: {metrics['specificity']}")
-        print(f"Accuracy: {metrics['accuracy']}")
-        print(f"AUC Score: {metrics['auc']}")
+        print(f"Dice Coefficient: {train_metrics['dice']}")
+        print(f"Precision-Recall Curve: {train_metrics['precision']}, {train_metrics['recall']}")
+        print(f"Sensitivity: {train_metrics['sensitivity']}")
+        # print(f"Specificity: {train_metrics['specificity']}")
+        # print(f"Accuracy: {train_metrics['accuracy']}")
+        # print(f"AUC Score: {train_metrics['auc']}")
+        print('Jaccard Index: ', train_metrics['jaccard'])
         print('-' * 50)
+
+        with torch.no_grad():
+            # Get predictions
+            predictions = model(input_tensor)
 
     # Visualize prediction and target
     import matplotlib.pyplot as plt
