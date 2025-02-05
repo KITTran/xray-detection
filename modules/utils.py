@@ -347,21 +347,13 @@ def save_metrics(save_dir, prefix, train_losses, train_dcs, valid_losses, valid_
         json.dump(metrics, f)
 
 # Print metrics as a table, inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
-def print_metrics(epoch, prc, rec, sen, spe, acc, auc, dice):
-
-    # Convert to numpy array
-    prc = prc.cpu()
-    rec = rec.cpu()   
-    sen = sen.cpu()
-    spe = spe.cpu()
-    acc = acc.cpu()
-    auc = auc.cpu()
-    dice = torch.tensor(dice)
-
+def print_metrics(epoch, **metrics):
     print(f"Epoch {epoch}")
-    print(f"{'Precision':<15}{'Recall':<15}{'Sensitivity':<15}{'Specificity':<15}{'Accuracy':<15}{'AUC':<15}{'Dice':<15}")
-    # print(f"{prc.item():<15.4f}{rec.item():<15.4f}{sen.item():<15.4f}{spe.item():<15.4f}{acc.item():<15.4f}{auc.item():<15.4f}{dice.item():<15.4f}")
-    print(f'{prc}   {rec}    {sen}    {spe}    {acc}    {auc}    {dice}')
+    headers = metrics.keys()
+    print("".join([f"{header:<15}" for header in headers]))
+
+    values = [metrics[header].cpu().item() for header in headers]
+    print("".join([f"{value:<15.4f}" for value in values]))
 
 # Path: datasets/gdxray
 if __name__ == "__main__":
@@ -389,11 +381,13 @@ if __name__ == "__main__":
     # visualize_augmentations(dataset, num_samples=3)
 
     # print metrics
-    prc = torch.tensor(0.8)
-    rec = torch.tensor(0.6)
-    sen = torch.tensor(0.9)
-    spe = torch.tensor(0.7)
-    acc = torch.tensor(0.85)
-    auc = torch.tensor(0.95)
-    dice = torch.tensor(0.75)
-    print_metrics(1, prc, rec,sen, spe, acc, auc, dice)
+    metrics = {
+        "prc": torch.tensor(0.8),
+        "rec": torch.tensor(0.6),
+        "sen": torch.tensor(0.9),
+        "spe": torch.tensor(0.7),
+        # "acc": torch.tensor(0.85),
+        "auc": torch.tensor(0.95),
+        "dice": torch.tensor(0.75),
+    }
+    print_metrics(1, **metrics)
