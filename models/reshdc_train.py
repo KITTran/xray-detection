@@ -2,7 +2,7 @@
 import datetime
 import os
 import sys
-import tqdm
+from tqdm import tqdm
 
 import torch
 import torchmetrics
@@ -91,8 +91,9 @@ for epoch in tqdm(range(config['epochs'])):
         metric = metrics(y_pred.squeeze(), mask.squeeze())
 
         try:
-            train_running_metrics[key] += metric[key] for key in metric.keys()
-        except:
+            for key in metric.keys():
+                train_running_metrics[key] += metric[key]
+        except KeyError:
             train_running_metrics = metric
 
         train_running_loss += loss.item()
@@ -122,8 +123,9 @@ for epoch in tqdm(range(config['epochs'])):
             metric = metrics(y_pred.squeeze(), mask.squeeze())
 
             try:
-                val_running_metrics[key] += metric[key] for key in metric.keys()
-            except:
+                for key in metric.keys():
+                    val_running_metrics[key] += metric[key]
+            except KeyError:
                 val_running_metrics = metric
 
             val_running_loss += loss.item()

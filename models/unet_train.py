@@ -95,7 +95,8 @@ for epoch in tqdm(range(config['epochs'])):
         # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
         metric = metrics(y_pred.squeeze(), mask.squeeze())
         try:
-            train_running_metric += {k: v for k, v in metric.items()}
+            for key in metric.keys():
+                train_running_metric[key] += metric[key]
         except KeyError:
             train_running_metric = metric
 
@@ -126,7 +127,8 @@ for epoch in tqdm(range(config['epochs'])):
             # Metrics inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
             metric = metrics(y_pred.squeeze(), mask.squeeze())
             try:
-                val_running_metric += {k: v for k, v in metric.items()}
+                for key in metric.keys():
+                    val_running_metric[key] += metric[key]
             except KeyError:
                 val_running_metric = metric
 
