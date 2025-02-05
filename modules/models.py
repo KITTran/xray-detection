@@ -436,10 +436,10 @@ class ResHDC_Model(nn.Module):
         self.num_classes = num_classes
 
         self.conv1 = nn.Conv2d(input_channels, output_list[0], kernel_size=1, stride=1) # 3*320*320 -> 64*320*320
+        
         self.reshdc_branch = nn.ModuleList()
-
-        for i in range(len(output_list)):
-            self.reshdc_branch.append(ResHDCCBAM(output_list[i], output_list[i], channel_ratio))
+        for i in range(len(output_list)-1):
+            self.reshdc_branch.append(ResHDCCBAM(output_list[i], output_list[i+1], channel_ratio))
 
         # adaptive feature fusion = len(output_list) - 2
         self.aff = nn.ModuleList()
@@ -601,15 +601,16 @@ class UNet(nn.Module):
 
 # Example usage
 if __name__ == '__main__':
-    input_tensor = torch.randn(1, 3, 320, 640)
+    input_tensor = torch.randn(1, 3, 320, 320)
     output_list = [32, 64, 128, 256, 512]
     num_parallel = 2
-    num_classes = 2
+    num_classes = 1
     upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
 
     # model = WResHDC_FF(num_classes, input_tensor.shape[1], output_list, num_parallel, upsampling_cfg)
     # model = DCIM(output_list, num_parallel)
-    model = UNet(num_classes, input_tensor.shape[1], output_list)
+    # model = UNet(num_classes, input_tensor.shape[1], output_list)
+    model = ResHDC_Model(num_classes, input_tensor.shape[1], output_list)
     output = model(input_tensor)
 
     # print("Output shape:", output.shape)
