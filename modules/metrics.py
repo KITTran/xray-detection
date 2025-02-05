@@ -78,7 +78,7 @@ def auc_score(predictions, targets):
     targets_np = targets.detach().cpu().numpy()
     return roc_auc_score(targets_np, predictions_np)
 
-class Metrics:
+class UnetMetrics:
     def __init__(self, threshold=0.7):
         self.threshold = threshold
 
