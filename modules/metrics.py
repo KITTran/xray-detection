@@ -97,6 +97,7 @@ class UnetMetrics:
         # predictions = torch.sigmoid(predictions)
 
         dice = dice_coefficient(predictions.squeeze(), targets.squeeze())
+        sens = sensitivity(predictions.squeeze(), targets.squeeze(), self.threshold)
 
         # Flatten tensors
         predictions = predictions.view(-1).detach().cpu().numpy()
@@ -110,9 +111,6 @@ class UnetMetrics:
         fp = (pred_labels * (1 - targets)).sum()
         tn = ((1 - pred_labels) * (1 - targets)).sum()
         fn = ((1 - pred_labels) * targets).sum()
-
-        # Sensitivity (Recall)
-        sensitivity = tp / (tp + fn + 1e-7)
 
         # Specificity
         specificity = tn / (tn + fp + 1e-7)
@@ -130,12 +128,12 @@ class UnetMetrics:
             auc = 0.0  # Handle cases where AUC cannot be computed
 
         # Precision-Recall Curve
-        precision, recall, _ = precision_recall_curve(targets, predictions, pos_label=1)
-
+        precision = tp / (tp + fp + 1e-7)
+        recall = tp / (tp + fn + 1e-7)
 
         metrics = {
             'accuracy': accuracy,
-            'sensitivity': sensitivity,
+            'sensitivity': sens,
             'specificity': specificity,
             'auc': auc,
             'precision': precision,
