@@ -6,6 +6,29 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+def dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+    # Average of Dice coefficient for all batches, or for a single mask
+    assert input.size() == target.size()
+    assert input.dim() == 3 or not reduce_batch_first
+
+    sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
+
+    inter = 2 * (input * target).sum(dim=sum_dim)
+    sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
+    sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
+
+    dice = (inter + epsilon) / (sets_sum + epsilon)
+    return dice.mean()
+
+def multiclass_dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
+    # Average of Dice coefficient for all classes
+    return dice_coeff(input.flatten(0, 1), target.flatten(0, 1), reduce_batch_first, epsilon)
+
+def dice_loss(input: torch.Tensor, target: torch.Tensor, multiclass: bool = False):
+    # Dice loss (objective to minimize) between 0 and 1
+    fn = multiclass_dice_coeff if multiclass else dice_coeff
+    return 1 - fn(input, target, reduce_batch_first=True)
+
 
 def make_one_hot(input, num_classes):
     """Convert class index tensor to one hot encoding tensor.
@@ -23,7 +46,6 @@ def make_one_hot(input, num_classes):
     result = result.scatter_(1, input.cpu(), 1)
 
     return result
-
 
 class BinaryDiceLoss(nn.Module):
     """Dice loss of binary class
@@ -64,7 +86,6 @@ class BinaryDiceLoss(nn.Module):
         else:
             raise Exception('Unexpected reduction {}'.format(self.reduction))
 
-
 class DiceLoss(nn.Module):
     """Dice loss, need one hot encode input
     Args:
@@ -76,6 +97,7 @@ class DiceLoss(nn.Module):
     Return:
         same as BinaryDiceLoss
     """
+
     def __init__(self, weight=None, ignore_index=None, **kwargs):
         super(DiceLoss, self).__init__()
         self.kwargs = kwargs
@@ -99,51 +121,74 @@ class DiceLoss(nn.Module):
 
         return total_loss/target.shape[1]
 
-def dice_coeff(input: torch,Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
-    # Average of Dice coefficient for all batches, or for a single mask
-    assert input.size() == target.size()
-    assert input.dim() == 3 or not reduce_batch_first
+class ImprovedCE(nn.Module):
+    def __init__(self, weight=None):
+        super(ImprovedCE, self).__init__()
+        self.weight = weight
 
-    sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
+    def forward(self, prediction, truth):
+        prediction = torch.clamp(prediction, min=1e-7, max=1-1e-7)
+        prediction = prediction.view(-1) # Flatten
+        truth = truth.view(-1) # Flatten
 
-    inter = 2 * (input * target).sum(dim=sum_dim)
-    sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
-    sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
+        if self.weight is not None:
+            assert len(self.weight) == 2
 
-    dice = (inter + epsilon) / (sets_sum + epsilon)
-    return dice.mean()
+            loss = - torch.sum(self.weight[0] * (truth * torch.log(prediction)) + self.weight[1] * ((1 - truth) * torch.log(1 - prediction)))
 
+        return loss / truth.size(0)
 
-def multiclass_dice_coeff(input: torch.Tensor, target: torch.Tensor, reduce_batch_first: bool = False, epsilon: float = 1e-6):
-    # Average of Dice coefficient for all classes
-    return dice_coeff(input.flatten(0, 1), target.flatten(0, 1), reduce_batch_first, epsilon)
+def jaccard_distance_loss(y_true, y_pred, smooth=100):
+    """
+    Jaccard = (|X & Y|)/ (|X|+ |Y| - |X & Y|)
+            = sum(|A*B|)/(sum(|A|)+sum(|B|)-sum(|A*B|))
 
+    The jaccard distance loss is usefull for unbalanced datasets. This has been
+    shifted so it converges on 0 and is smoothed to avoid exploding or disapearing
+    gradient.
 
-def dice_loss(input: torch.Tensor, target: torch.Tensor, multiclass: bool = False):
-    # Dice loss (objective to minimize) between 0 and 1
-    fn = multiclass_dice_coeff if multiclass else dice_coeff
-    return 1 - fn(input, target, reduce_batch_first=True)
+    Ref: https://en.wikipedia.org/wiki/Jaccard_index
+
+    @url: https://gist.github.com/wassname/17cbfe0b68148d129a3ddaa227696496
+    @author: wassname
+    """
+    intersection= (y_true * y_pred).abs().sum(dim=-1)
+    sum_ = torch.sum(y_true.abs() + y_pred.abs(), dim=-1)
+    jac = (intersection + smooth) / (sum_ - intersection + smooth)
+    return (1 - jac) * smooth
 
 if __name__ == "__main__":
 
-    # Example prediction tensor for 2 classes (background and defect)
-    predict = torch.randn(3, 2, 256, 256)  # Batch size of 3, 2 classes, 256x256 image
+    # Dummy binary segmentation model
+    class DummySegmentationModel(nn.Module):
+        def __init__(self):
+            super(DummySegmentationModel, self).__init__()
+            self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
+            self.conv2 = nn.Conv2d(16, 1, kernel_size=3, padding=1)
+            self.relu = nn.ReLU()
+            self.sigmoid = nn.Sigmoid()
 
-    # Example target tensor for 2 classes (background and defect)
-    target = torch.randint(0, 2, (3, 1, 256, 256))  # Batch size of 3, 1 channel, 256x256 image
+        def forward(self, x):
+            x = self.relu(self.conv1(x))
+            x = self.sigmoid(self.conv2(x))
+            return x
 
-    # # Calculate loss using custom dice_loss function
-    # loss = dice_loss(predict, target)
+    # Create model, loss function, and optimizer
+    model = DummySegmentationModel()
+    # criterion = ImprovedCE((0.5, 0.5))
+    criterion = BinaryDiceLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    # print("Dice Loss:", loss.item())
+    # Dummy data
+    inputs = torch.randn(2, 3, 256, 256)  # Batch of 2, 1 channel, 256x256 images
+    targets = torch.randint(0, 1, (2, 1, 256, 256)).float()  # Binary targets
 
-    # Convert target to one-hot encoding
-    target = make_one_hot(target, num_classes=2)
-
-    # Initialize DiceLoss
-    dice_loss1 = DiceLoss()
-
-    # Calculate loss
-    loss = dice_loss1(predict, target)
-
-    print("Dice Loss:", loss.item())
+    # Training loop
+    model.train()
+    for epoch in range(100):  # Train for 5 epochs
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs.squeeze(), targets.squeeze())
+        loss.backward()
+        optimizer.step()
+        print(f'Epoch {epoch+1}, Loss: {loss.item()}')

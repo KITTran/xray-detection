@@ -3,6 +3,7 @@ import os
 import json
 import math
 import random
+import torch
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -208,8 +209,11 @@ class GDXrayDataset(Dataset):
             image, label = self.transform(image, label) if self.labels else self.transform(image)
 
         if self.labels:
-            return image, v2.ToTensor()(label).squeeze(0)
-        
+            # Convert to binary mask
+            label = label / 255.0
+            label = torch.where(label > 0.3, 1, 0)
+            return image, label
+
         return image
 
     def add_class(self, source, class_id, class_name):
@@ -342,9 +346,18 @@ def save_metrics(save_dir, prefix, train_losses, train_dcs, valid_losses, valid_
     with open(os.path.join(save_dir, f"metrics_{prefix}.json"), 'w') as f:
         json.dump(metrics, f)
 
+# Print metrics as a table, inlcude precision-recall curve, sensitivity, specificity, accuracy, AUC and dice coefficient
+def print_metrics(epoch, **metrics):
+    print(f"Epoch {epoch}")
+    headers = metrics.keys()
+    print("".join([f"{header:<15}" for header in headers]))
+
+    values = [metrics[header] for header in headers]
+    print("".join([f"{value:<15.4f}" for value in values]))
 
 # Path: datasets/gdxray
 if __name__ == "__main__":
+    import torch
     config = {
         "name": "gdxray",
         "data_dir": os.path.join(os.path.dirname(CURRENT_DIR), "data/gdxray"),
@@ -352,17 +365,29 @@ if __name__ == "__main__":
         "subset": "train",
     }
 
-    transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5), v2.ToTensor()])
+    # transform = v2.Compose([v2.Resize((224, 224)), v2.RandomRotation(0.5), v2.ToTensor()])
 
-    dataset = GDXrayDataset(config, labels=True, transform=transform)
+    # dataset = GDXrayDataset(config, labels=True, transform=transform)
 
-    loader = DataLoader(dataset, batch_size=2, shuffle=True)
+    # loader = DataLoader(dataset, batch_size=2, shuffle=True)
 
-    for i, (image, label) in enumerate(loader):
-        print(image.shape, label.shape)
-        if i == 0:
-            break
+    # for i, (image, label) in enumerate(loader):
+    #     print(image.shape, label.shape)
+    #     if i == 0:
+    #         break
 
     # visualize_samples(dataset, num_samples=3, labels=True)
 
     # visualize_augmentations(dataset, num_samples=3)
+
+    # print metrics
+    metrics = {
+        "prc": torch.tensor(0.8),
+        "rec": torch.tensor(0.6),
+        "sen": torch.tensor(0.9),
+        "spe": torch.tensor(0.7),
+        # "acc": torch.tensor(0.85),
+        "auc": torch.tensor(0.95),
+        "dice": torch.tensor(0.75),
+    }
+    print_metrics(1, **metrics)
