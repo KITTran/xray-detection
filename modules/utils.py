@@ -210,8 +210,8 @@ class GDXrayDataset(Dataset):
 
         if self.labels:
             # Convert to binary mask
-            label = np.array(label) / 255.0
-            label = np.where(label > 0.3, 1, 0)
+            label = label / 255.0
+            label = torch.where(label > 0.3, 1, 0)
             return image, label
 
         return image
@@ -352,7 +352,7 @@ def print_metrics(epoch, **metrics):
     headers = metrics.keys()
     print("".join([f"{header:<15}" for header in headers]))
 
-    values = [metrics[header].cpu().item() for header in headers]
+    values = [metrics[header] for header in headers]
     print("".join([f"{value:<15.4f}" for value in values]))
 
 # Path: datasets/gdxray
