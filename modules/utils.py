@@ -266,7 +266,6 @@ class GDXrayDataset(Dataset):
             image_ids += metadata_file.readlines()
         return [p.rstrip() for p in image_ids]
 
-
 def visualize_samples(dataset, num_samples=3, labels=True):
     """
     Visualize random samples from the dataset with images in the first column and labels in the second.
