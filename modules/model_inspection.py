@@ -18,17 +18,17 @@ import utils
 import metrics
 import augmented
 
-from torchvision import transforms
+from torchvision.transforms import v2 as transforms
 
 # Load metrics from JSON file
 with open('/home/tuank/projects/cracked-detection/logs/gdxray/metrics_2025-01-30_17-48-13.json', 'r') as f:
-    metrics = json.load(f)
+    metrics_dict = json.load(f)
 
 # Extract loss and dice score arrays
-train_loss = metrics['train_losses']
-train_dice = metrics['train_dcs']
-valid_loss = metrics['valid_losses']
-valid_dice = metrics['valid_dcs']
+train_loss = metrics_dict['train_losses']
+train_dice = metrics_dict['train_dcs']
+valid_loss = metrics_dict['valid_losses']
+valid_dice = metrics_dict['valid_dcs']
 
 epochs_list = list(range(1, len(train_loss) + 1))
 
@@ -105,13 +105,13 @@ df = pd.DataFrame({
     'Validation Loss': metrics_valid
 })
 
-# Melt the DataFrame to have a long format suitable for Plotly
-df_melted = df.melt(id_vars=['Epochs'], value_vars=['Training Loss', 'Validation Loss'],
-                    var_name='Metric', value_name='Loss')
+# # Melt the DataFrame to have a long format suitable for Plotly
+# df_melted = df.melt(id_vars=['Epochs'], value_vars=['Training Loss', 'Validation Loss'],
+#                     var_name='Metric', value_name='Loss')
 
-# Create the line plot
-fig = px.line(df_melted, x='Epochs', y='Loss', color='Metric', title='Training and Validation Loss over Epochs')
-fig.show()
+# # Create the line plot
+# fig = px.line(df_melted, x='Epochs', y='Loss', color='Metric', title='Training and Validation Loss over Epochs')
+# fig.show()
 
 # Load dataset
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -127,17 +127,16 @@ config = {
         'image_size': (320, 640),
         'learning_rate': 1e-4,
         'batch_size': 8,
-        'epochs': 40000,
+        'epochs': 40000,100.98.42.94
         'save_dir': os.path.join(PARENT_DIR, "logs/gdxray")
    }
 
 transform_test = augmented.unet_augmentation_valid(config['image_size'])
 
 test_dataset = utils.GDXrayDataset(config, labels=config['labels'], transform=transform_test)
-test_dataloader = torch.utils.data.DataLoader(dataset=test_dataset,
-                              num_workers=4, pin_memory=False,
-                              batch_size=config['batch_size'],
-                              shuffle=True)
+test_dataloader = torch.utils.data.DataLoader(dataset=test_dataset,num_workers=4, pin_memory=False,
+batch_size=config['batch_size'],
+shuffle=True)
 
 output_list = [32, 64, 128, 256, 512]
 num_classes = 1
@@ -196,8 +195,12 @@ def random_images_inference(image_tensors, mask_tensors, image_paths, model_pth,
 
         plt.figure(figsize=(15, 16))
         plt.subplot(131), plt.imshow(img), plt.title("original")
+        plt.axis('off')
         plt.subplot(132), plt.imshow(pred_mask, cmap="gray"), plt.title("predicted")
+        plt.axis('off')
         plt.subplot(133), plt.imshow(mask, cmap="gray"), plt.title("mask")
+        plt.axis('off')
+        plt.tight_layout()
         plt.show()
 
 # Load the images
@@ -217,3 +220,37 @@ for _ in range(n):
 
 # Perform inference
 random_images_inference(image_tensors, mask_tensors, image_paths, weights_path, config['device'])
+
+# Image path
+image_path = '/home/tuank/projects/cracked-detection/data/sample/IMG（1~30）/1 (A) のコピー.jpg'
+
+# Load the image
+from PIL import Image
+
+image = Image.open(image_path).convert("RGB")
+
+# Preprocess the image
+preprocess = transforms.Compose([
+    transforms.Resize(config['image_size']),
+    transforms.ToTensor(),
+    # transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
+
+image = preprocess(image)
+
+# Predict the image
+model.eval()
+with torch.no_grad():
+    output = model(image.unsqueeze(0).to(config['device']))
+    output = torch.sigmoid(output).squeeze(0).cpu().detach().numpy()
+
+output[output < 0.5] = 0
+output[output >= 0.5] = 1
+
+# Plot the image and the predicted mask
+plt.figure(figsize=(15, 8))
+plt.subplot(121), plt.imshow(image.permute(1, 2, 0)), plt.title("Original Image")
+plt.subplot(122), plt.imshow(output.squeeze(), cmap="gray"), plt.title("Predicted Mask")
+plt.axis("off")
+plt.tight_layout()
+plt.show()
