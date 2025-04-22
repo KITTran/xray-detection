@@ -12,7 +12,7 @@ import tqdm
 import matplotlib.pyplot as plt
 
 sys.path.append(os.path.abspath('..'))
-from modules import utils, models, losses, augmented, metrics
+from modules import network, utils, losses, augmented, metrics
 
 now = datetime.datetime.now()
 now = now.strftime('%Y-%m-%d_%H-%M-%S')
@@ -58,7 +58,7 @@ output_list = [64, 128, 256, 512]
 num_parallel = 2
 num_classes = 2
 upsampling_cfg = dict(type='carafe', scale_factor=2, kernel_up=5, kernel_encoder=3)
-model = models.WResHDC_FF(num_classes, 3, output_list, num_parallel, upsample_cfg=upsampling_cfg)
+model = network.WResHDC_FF(num_classes, 3, output_list, num_parallel, upsample_cfg=upsampling_cfg)
 model.to(config['device'])
 
 optimizer = optim.AdamW(model.parameters(), lr=config['learning_rate'])
