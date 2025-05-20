@@ -207,13 +207,17 @@ class GDXrayDataset(Dataset):
 
         if self.transform:
             image, label = self.transform(image, label) if self.labels else self.transform(image)
-
+        else:
+            image = v2.ToTensor()(image)
+        
         if self.labels:
             # Convert to binary mask
+            if not isinstance(label, torch.Tensor):
+                label = v2.ToTensor()(label)
             label = label / 255.0
             label = torch.where(label > 0.3, 1, 0)
             return image, label
-
+        
         return image
 
     def add_class(self, source, class_id, class_name):

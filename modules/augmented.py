@@ -216,12 +216,12 @@ def unet_augmentation_train(patch_size, rotate_angle=180, noise_mean=0, noise_co
             # MyHistogramEqualization(),
             v2.RandomEqualize(p = 1),
             v2.RandomRotation(degrees=rotate_angle, interpolation=InterpolationMode.BILINEAR),
-            MyGammaTransform(c = 0.5, gamma = 0.3),
+            # MyGammaTransform(c = 0.5, gamma = 0.3),
             # MyLinearTransform(k = 0.2, b = 0.1),
             # v2.LinearTransformation(),
             v2.PILToTensor(),
             v2.ToDtype(torch.float32, scale=True),
-            v2.GaussianNoise(mean=noise_mean, sigma=noise_cov),
+            # v2.GaussianNoise(mean=noise_mean, sigma=noise_cov),
             v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
