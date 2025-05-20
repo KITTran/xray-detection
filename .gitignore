@@ -161,3 +161,4 @@ cython_debug/
 
 # Unnecessary files
 data/xray-gt/
+logs
