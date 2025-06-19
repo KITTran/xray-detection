@@ -194,29 +194,27 @@ class GDXrayDataset(Dataset):
         """
 
         image_path = self.image_info[idx]["path"]
-        # image = cv2.imread(image_path, cv2.IMREAD_COLOR)
-        # self.update_info(idx, height_org=image.shape[0], width_org=image.shape[1])
-        image = Image.open(image_path).convert('RGB')
+        image = Image.open(image_path)
+        if self.config['type'] == 'gray':
+            image = image.convert('L')
+        else:
+            image = image.convert('RGB')
         width, height = image.size
-        self.update_info(idx, height_org=width, width_org=height)
+        self.update_info(idx, height_org=height, width_org=width)
 
         if self.labels:
             label_path = self.image_info[idx]["label"]
-            # label = cv2.imread(label_path, cv2.IMREAD_GRAYSCALE)
             label = Image.open(label_path).convert('L') # read as grayscale
 
         if self.transform:
             image, label = self.transform(image, label) if self.labels else self.transform(image)
         else:
             image = v2.ToTensor()(image)
+            if self.labels:
+                label = v2.ToTensor()(label)
         
         if self.labels:
-            # Convert to binary mask
-            if not isinstance(label, torch.Tensor):
-                label = v2.ToTensor()(label)
-            label = label / 255.0
-            label = torch.where(label > 0.3, 1, 0)
-            return image, label
+            return image, label.to(torch.bool).to(torch.float32)
         
         return image
 
@@ -330,7 +328,7 @@ def visualize_augmentations(dataset, idx=0, samples=10, cols=5):
         image, mask = dataset[idx]
         image = image.permute(1, 2, 0).numpy()
         mask = mask.permute(1, 2, 0).numpy()
-        ax.ravel()[i * 2].imshow(image)
+        ax.ravel()[i * 2].imshow(image, cmap='gray')
         ax.ravel()[i * 2].set_title("Image")
         ax.ravel()[i * 2].set_axis_off()
         ax.ravel()[i * 2 + 1].imshow(mask, cmap='gray')

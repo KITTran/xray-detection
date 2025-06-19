@@ -1,6 +1,6 @@
-# Get time of execution
-%load_ext autoreload
-%autoreload 2
+# # Get time of execution
+# %load_ext autoreload
+# %autoreload 2
 
 import datetime
 import os
@@ -14,7 +14,7 @@ import tqdm
 
 import matplotlib.pyplot as plt
 
-sys.path.append(os.path.abspath('..'))
+sys.path.append(os.path.abspath('.'))
 from modules import network, utils, losses, augmented, metrics
 
 now = datetime.datetime.now()
@@ -32,12 +32,13 @@ config = {
         'subset': "train",
         'labels': True,
         'device': "cuda" if torch.cuda.is_available() else "cpu",
-        'image_size': (224, 224),
-        'learning_rate': 3e-4,
+        'image_size': (320, 640),
+        'type': 'gray',
+        'learning_rate': 1e-4,
         'batch_size': 8,
-        'epochs': 10,
+        'epochs': 40000,
         'save_dir': os.path.join(PARENT_DIR, "logs/gdxray")
-   }
+        }
 
 transform_train = augmented.unet_augmentation_train(config['image_size'])
 transform_valid = augmented.unet_augmentation_valid(config['image_size'])
@@ -58,8 +59,8 @@ valid_dataloader = DataLoader(dataset=valid_dataset,
                               shuffle=True)
 
 # Initialize model, loss function, and optimizer
-output_list = [64, 128, 256, 512, 1024]  # Channel dimensions for each level
-model = network.UNet(num_classes=1, input_channels=3, output_list=output_list)
+output_list = [32, 64, 128, 256, 512]  # Channel dimensions for each level
+model = network.UNet(num_classes=1, input_channels=1, output_list=output_list)
 model = model.to(config['device'])
 
 # Loss function and optimizer
@@ -76,76 +77,80 @@ for epoch in range(config['epochs']):
     model.train()
     train_metrics = {}
     train_loss = 0.0
-    
+
     for batch_idx, (images, masks) in enumerate(tqdm.tqdm(train_dataloader, desc=f'Epoch {epoch+1}/{config["epochs"]}')):
         images = images.to(config['device'])
         masks = masks.to(config['device'])
-        
+
         # Forward pass
         outputs = model(images)
         loss = criterion(outputs.squeeze(), masks.squeeze())
-        
+
         # Backward pass and optimize
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
+
         # Calculate metrics
         batch_metrics = metrics.compute_metrics(outputs, masks)
         train_loss += loss.item()
-        
+
         # Accumulate metrics
         if not train_metrics:
             train_metrics = {k: v for k, v in batch_metrics.items()}
         else:
             for k in train_metrics:
                 train_metrics[k] += batch_metrics[k]
-    
+
     # Average training metrics
     train_loss /= len(train_dataloader)
     for k in train_metrics:
         train_metrics[k] /= len(train_dataloader)
-    
+
     # Validation phase
     model.eval()
     val_metrics = {}
     val_loss = 0.0
-    
+
     with torch.no_grad():
         for images, masks in tqdm.tqdm(valid_dataloader, desc='Validation'):
             images = images.to(config['device'])
             masks = masks.to(config['device'])
-            
+
             outputs = model(images)
             loss = criterion(outputs.squeeze(), masks.squeeze())
-            
+
             # Calculate metrics
             batch_metrics = metrics.compute_metrics(outputs, masks)
             val_loss += loss.item()
-            
+
             # Accumulate metrics
             if not val_metrics:
                 val_metrics = {k: v for k, v in batch_metrics.items()}
             else:
                 for k in val_metrics:
                     val_metrics[k] += batch_metrics[k]
-    
+
     # Average validation metrics
     val_loss /= len(valid_dataloader)
     for k in val_metrics:
         val_metrics[k] /= len(valid_dataloader)
-    
-    # Print epoch results
-    print(f'\nEpoch {epoch+1}/{config["epochs"]}:')
-    print(f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
-    print('Training Metrics:')
-    for k, v in train_metrics.items():
-        print(f'{k}: {v:.4f}')
-    print('Validation Metrics:')
-    for k, v in val_metrics.items():
-        print(f'{k}: {v:.4f}')
-    
-    # Save best model
+
+    # Print epoch results after 1000 epochs
+    if (epoch) % 1000 == 0:
+        print(f'\nEpoch {epoch+1}/{config["epochs"]}:')
+        print(f'Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
+        print('Training Metrics:')
+        for k, v in train_metrics.items():
+            print(f'{k}: {v:.4f}')
+        print('Validation Metrics:')
+        for k, v in val_metrics.items():
+            print(f'{k}: {v:.4f}')
+
+    # Check the path
+    if not os.path.exists(config['save_dir']):
+        os.makedirs(config['save_dir'])
+    # Save the best model based on validation dice score
     if val_metrics['dice'] > best_val_dice:
         best_val_dice = val_metrics['dice']
         torch.save({
@@ -154,13 +159,14 @@ for epoch in range(config['epochs']):
             'optimizer_state_dict': optimizer.state_dict(),
             'val_dice': best_val_dice,
         }, os.path.join(config['save_dir'], 'best_model.pth'))
-    
-    # Save checkpoint
-    torch.save({
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'val_dice': val_metrics['dice'],
-    }, os.path.join(config['save_dir'], f'checkpoint_epoch_{epoch+1}.pth'))
+
+    # Save checkpoint after 5000 epochs
+    if (epoch + 1) % 5000 == 0:
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'val_dice': val_metrics['dice'],
+        }, os.path.join(config['save_dir'], f'checkpoint_epoch_{epoch+1}.pth'))
 
 print('Training completed!')

@@ -6,19 +6,21 @@ import torch
 from PIL import Image
 from torchvision.transforms import v2
 from torchvision.transforms.functional import InterpolationMode, pad, rotate, affine
-
-# Define the transformations as functionss
+import cv2
+# Define the transformations as functions
 
 class MyGammaTransform(torch.nn.Module):
-    def __init__(self, c=1, gamma=0.7):
+    def __init__(self, gamma=0.7, c=1):
         super(MyGammaTransform, self).__init__()
         self.c = c
         self.gamma = gamma
 
     def forward(self, img, label = None):
-        img = v2.PILToTensor()(img) / 255.0
+        # img = v2.PILToTensor()(img) / 255.0
         transformed = self.c * (img ** self.gamma)
-        transformed = torch.clamp(transformed * 255.0, 0, 255).type(torch.float32)
+        # transformed = torch.clamp(transformed * 255.0, 0, 255).type(torch.float32)
+        
+        transformed = (transformed - transformed.min()) / (transformed.max() - transformed.min() + 1e-5)
         return transformed, label if label is not None else transformed
 
 class MyLinearTransform(torch.nn.Module):
@@ -28,29 +30,34 @@ class MyLinearTransform(torch.nn.Module):
         self.b = b
 
     def forward(self, img, label = None):
-        img = v2.PILToTensor()(img) / 255.0
+        # img = v2.PILToTensor()(img) / 255.0
         transformed = self.k * img + self.b
-        transformed = torch.clamp(transformed * 255.0, 0, 255).type(torch.float32)
+        # transformed = torch.clamp(transformed * 255.0, 0, 255).type(torch.float32)
+
+        transformed = (transformed - transformed.min()) / (transformed.max() - transformed.min() + 1e-5)
         return transformed, label if label is not None else transformed
 
-# class MyHistogramEqualization(torch.nn.Module):
-#     def __init__(self):
-#         super(MyHistogramEqualization, self).__init__()
+class MyHistogramEqualization(torch.nn.Module):
+    def __init__(self):
+        super(MyHistogramEqualization, self).__init__()
 
-#     def forward(self, img, label = None):
-#         img = img.numpy()
+    def forward(self, img, label = None):
+        # check if image is already uint8
+        if img.dtype != torch.uint8:
+            img = (img * 255).clamp(0, 255).to(torch.uint8)
 
-#         if len(img.shape) == 3 and img.shape[0] == 3:  # Color image
-#             img_yuv = cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
-#             img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
-#             equalized = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2RGB)
-#         else:  # Grayscale image
-#             equalized = cv2.equalizeHist(img)
+        img = img.numpy().squeeze()
+        if len(img.shape) == 3:  # Color image
+            img_yuv = cv2.cvtColor(img, cv2.COLOR_RGB2YUV)
+            img_yuv[:, :, 0] = cv2.equalizeHist(img_yuv[:, :, 0])
+            equalized = cv2.cvtColor(img_yuv, cv2.COLOR_YUV2RGB)
+        else:
+            equalized = cv2.equalizeHist(img)
 
-#         print('Dtype of equalized:', equalized.dtype)
-#         print('Shape of equalized:', equalized.shape)
+        print('Dtype of equalized:', equalized.dtype)
+        print('Shape of equalized:', equalized.shape)
 
-        return torch.from_numpy(equalized), label if label is not None else torch.from_numpy(equalized)
+        return torch.from_numpy(equalized), label
 
 class MyUniformCrop(torch.nn.Module):
     def __init__(self, patch_size):
@@ -210,19 +217,19 @@ class MyRandomRotate(torch.nn.Module):
 
         return img, label if label is not None else img
 
-def unet_augmentation_train(patch_size, rotate_angle=180, noise_mean=0, noise_cov=0.02):
+def unet_augmentation_train(patch_size, rotate_angle=180, noise_mean=0, noise_cov=0.02**0.5):
         return v2.Compose([
-            v2.Resize(patch_size, interpolation=InterpolationMode.BILINEAR),
+            v2.RandomCrop(patch_size, padding=None, pad_if_needed=True, fill=0, padding_mode='constant'),
+            v2.RandomRotation(degrees=rotate_angle, interpolation=InterpolationMode.BILINEAR),
+            v2.PILToTensor(), # Convert to tensor, preserve scale [0 255]
+            v2.ToDtype(torch.float32, scale=True), # Convert to float32, normalize to [0 1]
+            MyGammaTransform(c = 1, gamma = 0.7),
+            MyLinearTransform(k = 0.85, b = 0.3),
+            v2.GaussianNoise(mean=noise_mean, sigma=noise_cov),
             # MyHistogramEqualization(),
             v2.RandomEqualize(p = 1),
-            v2.RandomRotation(degrees=rotate_angle, interpolation=InterpolationMode.BILINEAR),
-            # MyGammaTransform(c = 0.5, gamma = 0.3),
-            # MyLinearTransform(k = 0.2, b = 0.1),
-            # v2.LinearTransformation(),
-            v2.PILToTensor(),
-            v2.ToDtype(torch.float32, scale=True),
-            # v2.GaussianNoise(mean=noise_mean, sigma=noise_cov),
-            v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            # v2.ToDtype(torch.float32, scale=True),
+            v2.Normalize(mean=[0.534], std=[0.338]), # only for gray image
         ])
 
 def unet_augmentation_valid(patch_size):
@@ -230,7 +237,7 @@ def unet_augmentation_valid(patch_size):
         v2.Resize(patch_size, interpolation=InterpolationMode.BILINEAR),
         v2.PILToTensor(),
         v2.ToDtype(torch.float32, scale=True),
-        v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        v2.Normalize(mean=[0.534], std=[0.338]), # only for gray image
     ])
 
 def reshdc_augmentation_train(patch_size, rotate_angle=(1, 3), crop_num=2, num_holes=10, gauss_mean=0.2, gauss_sigma=0.3):
@@ -248,6 +255,7 @@ def reshdc_augmentation_train(patch_size, rotate_angle=(1, 3), crop_num=2, num_h
         v2.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1),
         v2.GaussianNoise(mean=gauss_mean, sigma=gauss_sigma),
         # MyRandomCrop(patch_size, crop_num),
+        v2.ToDtype(torch.float32, scale=True),
         v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
 
